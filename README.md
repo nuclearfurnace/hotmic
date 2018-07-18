@@ -34,9 +34,9 @@ Like `tic`, performance is the name of the game for `hotmic`.  It was a primary 
 Out of the gate, `tic` itself is very fast.  Fast enough that unless you're counting micros, you almost certainly wouldn't need this much speed:
 
     # target/release/examples/benchmark --batch 128 --capacity 128 --windows 30
-    [tic benchmark] rate: 10272865.422551299 samples per second
-    [tic benchmark] latency (ns): p50: 111 p90: 117 p999: 2274 p9999: 9421 max: 25048384
-    [tic benchmark] total metrics pushed: 304100737
+    [tic benchmark] rate: 10227825.870144395 samples per second
+    [tic benchmark] latency (ns): p50: 88 p90: 100 p999: 2182 p9999: 8332 max: 28236055
+    [tic benchmark] total metrics pushed: 334533142
 
 Let's take a look at __hotmic__!
 
@@ -45,7 +45,7 @@ Let's take a look at __hotmic__!
     benchmark: latency (ns): p50: 43 p90: 53 p99: 4787 p999: 5339 max: 30367
     benchmark: total metrics pushed: 476316288
 
-Over 50% more throughput _and_ lower latency across most percentiles.  Now, there are some caveats here:
+Over 40% more throughput _and_ lower latency across most percentiles.  Now, there are some caveats here:
 
 - `tic` allocates at runtime in the critical path (when there are no free buffers to reuse) instead of blocking
 - `hotmic` opts to bound its runtime memory consumption by pre-allocating all buffers and blocking until one returns
@@ -68,7 +68,7 @@ Woof!  500k samples/sec is still nothing to sneeze at for a single instance of a
 
 I plan to include proper histogram logs in the future, at least for `hotmic` (`tic` doesn't use `HdrHistogram`, `hotmic` does), at varying request rates for some common batch/capacity values.  This should be more informative about what performance you can expect in your own application if you know what your expected workload is.
 
-(hotmic 3743d224bc10ae3808033acb68a91703b972fbd6, tic d77b3c615ff13ad89ba2b081e73a2f70e68428d9, July 2018)
+(hotmic 3743d224bc10ae3808033acb68a91703b972fbd6, tic d77b3c615ff13ad89ba2b081e73a2f70e68428d9 with `--features rdtsc`, July 2018)
 
 ## wall of recognition
 
