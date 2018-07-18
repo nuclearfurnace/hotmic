@@ -3,6 +3,18 @@ name = "hotmic"
 version = "0.1.0"
 authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
 
+license = "MIT"
+
+description  = "high-speed metrics collection library"
+
+homepage = "https://github.com/nuclearfurnace/hotmic"
+repository = "https://github.com/nuclearfurnace/hotmic"
+documentation = "https://docs.rs/hotmic"
+
+readme = "README.md"
+
+leywords = ["stats", "metrics", "telemetry", "histogram", "percentile", "counter"]
+
 [profile.release]
 debug = true
 opt-level = 3
