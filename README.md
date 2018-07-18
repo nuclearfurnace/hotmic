@@ -11,7 +11,7 @@
 [travis]: https://travis-ci.org/nuclearfurnace/hotmic
 [crate]: https://crates.io/crates/hotmic
 
-__hotmic__ is a high-speed metrics collection library, based on [crossbeam-channe](https://github.com/crossbeam-rs/crossbeam-channel) and [mio](https://github.com/carllerche/mio).  It is shameless fork of [tic](https://github.com/brayniac/tic) with some internal changes to support `crossbeam-channel` and to fit my needs better.  This project would not be possible without `tic`!
+__hotmic__ is a high-speed metrics collection library, based on [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam-channel) and [mio](https://github.com/carllerche/mio).  It is shameless fork of [tic](https://github.com/brayniac/tic) with some internal changes to support `crossbeam-channel` and to fit my needs better.  This project would not be possible without `tic`!
 
 ## code of conduct
 
