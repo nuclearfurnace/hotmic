@@ -1,0 +1,14 @@
+[package]
+name = "hotmic"
+version = "0.1.0"
+authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
+
+[dependencies]
+mio = "^0.6"
+lazycell = "1"
+crossbeam-channel = "^0.2"
+hdrhistogram = "^6.0"
+fnv = "^1.0"
+log = "^0.4"
+env_logger = "^0.5"
+getopts = "^0.2"
