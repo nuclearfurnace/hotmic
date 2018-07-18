@@ -62,6 +62,7 @@ fn print_usage(program: &str, opts: &Options) {
 pub fn opts() -> Options {
     let mut opts = Options::new();
 
+    opts.optopt("d", "duration", "number of seconds to run the benchmark", "INTEGER");
     opts.optopt("p", "producers", "number of producers", "INTEGER");
     opts.optopt("c", "capacity", "maximum number of unprocessed batches", "INTEGER");
     opts.optopt("b", "batch", "number of samples per source batch", "INTEGER");
@@ -93,6 +94,9 @@ fn main() {
     info!("hotmic benchmark");
 
     // Build our sink and configure the facets.
+    let seconds = matches.opt_str("duration").unwrap_or_else(|| "60".to_owned())
+        .parse()
+        .unwrap();
     let capacity = matches.opt_str("capacity").unwrap_or_else(|| "256".to_owned())
         .parse()
         .unwrap();
@@ -133,7 +137,7 @@ fn main() {
     // Poll the controller to figure out the sample rate.
     let mut total = 0;
     let mut t0 = Instant::now();
-    for _ in 0..60 {
+    for _ in 0..seconds {
         let t1 = Instant::now();
         let mut turn_total = 0;
 

@@ -3,6 +3,11 @@ name = "hotmic"
 version = "0.1.0"
 authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
 
+[profile.release]
+debug = true
+opt-level = 3
+lto = true
+
 [dependencies]
 mio = "^0.6"
 lazycell = "1"
