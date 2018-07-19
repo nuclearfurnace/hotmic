@@ -13,7 +13,7 @@ documentation = "https://docs.rs/hotmic"
 
 readme = "README.md"
 
-keywords = ["stats", "metrics", "telemetry", "histogram", "percentile", "counter"]
+keywords = ["metrics", "telemetry", "histogram", "counter", "gauge"]
 
 [profile.release]
 debug = true
