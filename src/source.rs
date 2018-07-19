@@ -62,7 +62,7 @@ impl<T> Source<T>
         let _ = self.control_tx.send(ControlMessage::AddFacet(facet));
     }
 
-    /// Deregisters a from from the sink.
+    /// Deregisters a facet from the sink.
     pub fn remove_facet(&mut self, facet: Facet<T>) {
         let _ = self.control_tx.send(ControlMessage::RemoveFacet(facet));
     }

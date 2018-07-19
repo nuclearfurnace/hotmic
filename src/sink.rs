@@ -13,6 +13,7 @@ use std::collections::HashSet;
 const DATA: Token = Token(5);
 const CONTROL: Token = Token(15);
 
+/// Metrics sink which aggregates and processes samples.
 pub struct Sink<T> {
     conf: Configuration<T>,
 
@@ -69,10 +70,12 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
         }
     }
 
+    /// Gets a builder to configure a `Sink` instance with.
     pub fn builder() -> Configuration<T> {
         Configuration::default()
     }
 
+    /// Creates a `Source` attached to this sink.
     pub fn get_source(&self) -> Source<T> {
         Source::new(
             self.buffer_pool_rx.clone(),
@@ -82,10 +85,21 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
         )
     }
 
+    /// Creates a `Controller` attached to this sink.
     pub fn get_controller(&self) -> Controller<T> {
         Controller::new(self.control_tx.clone())
     }
 
+    /// Turns the sink, performing a single iteration of processing.
+    ///
+    /// A single turn involves performing upkeep (adjusting histograms to make sure their windowing
+    /// is correct) and doing a single poll to see if any new data or control messages are
+    /// available.
+    ///
+    /// By default, the poll delay, or how long the call to `poll` will wait before timing out, is
+    /// set at 100ms.  This is important as we want to ensure the `poll` eventually returns during
+    /// periods of inactivity so it can be be recalled (when running via `run`) and perform
+    /// continued upkeep.
     pub fn turn(&mut self) {
         // Run upkeep before doing anything else.
         let now = Instant::now();
@@ -154,12 +168,14 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
         }
     }
 
+    /// Runs the sink endlessly.
     pub fn run(&mut self) {
         loop {
             self.turn();
         }
     }
 
+    /// Registers a facet with the sink.
     pub fn add_facet(&mut self, facet: Facet<T>) {
         match facet.clone() {
             Facet::Count(t) => self.counter.register(t),
@@ -171,6 +187,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
         self.facets.insert(facet);
     }
 
+    /// Deregisters a facet from the sink.
     pub fn remove_facet(&mut self, facet: Facet<T>) {
         match facet.clone() {
             Facet::Count(t) => self.counter.deregister(t),
