@@ -9,12 +9,12 @@ mod channel;
 mod configuration;
 mod control;
 mod data;
-mod source;
+mod receiver;
 mod sink;
 mod helper;
 
 pub use configuration::Configuration;
 pub use data::{Facet, Sample, Percentile};
 pub use sink::Sink;
-pub use source::Source;
+pub use receiver::Receiver;
 pub use control::Controller;

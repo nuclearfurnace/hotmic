@@ -10,7 +10,7 @@ pub(crate) enum ControlMessage<T> {
     Snapshot(mpsc::SyncSender<Snapshot<T>>),
 }
 
-/// Dedicated handle for performing operations on a running `Sink`.
+/// Dedicated handle for performing operations on a running `Receiver`.
 ///
 /// The caller is able to request metric snapshots at any time without requiring mutable access to
 /// the sink.  This all flows through the existing control mechanism, and so is very fast.

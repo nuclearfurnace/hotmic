@@ -1,201 +1,69 @@
-use crossbeam_channel::{Sender, Receiver, bounded};
-use mio::{Poll, Events, Ready, Token, PollOpt};
-use channel;
-use configuration::Configuration;
-use control::{ControlMessage, Controller};
-use source::Source;
-use data::{Facet, Sample, Counter, Gauge, Histogram, Snapshot, Percentile, default_percentiles};
+use std::io;
 use std::hash::Hash;
-use std::fmt::{Debug, Display};
-use std::time::{Instant, Duration};
-use std::collections::HashSet;
+use channel;
+use control::ControlMessage;
+use data::{Facet, Sample};
+use helper::io_error;
+use crossbeam_channel::Receiver;
 
-const DATA: Token = Token(5);
-const CONTROL: Token = Token(15);
-
-/// Metrics sink which aggregates and processes samples.
+/// An independent handle for sending metric samples into the receiver.
+///
+/// `Sink` is cloneable, and can not only send metric samples but can register and deregister
+/// metric facets at any time.
 pub struct Sink<T> {
-    conf: Configuration<T>,
-
-    // Sample aggregation machinery.
-    poll: Poll,
-    buffer_pool_tx: Sender<Vec<Sample<T>>>,
     buffer_pool_rx: Receiver<Vec<Sample<T>>>,
     data_tx: channel::Sender<Vec<Sample<T>>>,
-    data_rx: channel::Receiver<Vec<Sample<T>>>,
     control_tx: channel::Sender<ControlMessage<T>>,
-    control_rx: channel::Receiver<ControlMessage<T>>,
-    facets: HashSet<Facet<T>>,
-
-    // Metric machinery.
-    counter: Counter<T>,
-    gauge: Gauge<T>,
-    histogram: Histogram<T>,
-    percentiles: Vec<Percentile>,
-    last_upkeep: Instant,
+    buffer: Option<Vec<Sample<T>>>,
+    batch_size: usize,
 }
 
-impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
-    pub(crate) fn from_config(conf: Configuration<T>) -> Sink<T> {
-        // Create our data, control, and buffer channels.
-        let (data_tx, data_rx) = channel::channel::<Vec<Sample<T>>>(conf.capacity);
-        let (control_tx, control_rx) = channel::channel::<ControlMessage<T>>(conf.capacity);
-        let (buffer_pool_tx, buffer_pool_rx) = bounded::<Vec<Sample<T>>>(conf.capacity);
-
-        // Pre-allocate our sample batch buffers and put them into the buffer channel.
-        for _ in 0..conf.capacity {
-            let _ = buffer_pool_tx.send(Vec::with_capacity(conf.batch_size));
-        }
-
-        // Configure our poller.
-        let poll = Poll::new().unwrap();
-        poll.register(&data_rx, DATA, Ready::readable(), PollOpt::level()).unwrap();
-        poll.register(&control_rx, CONTROL, Ready::readable(), PollOpt::level()).unwrap();
-
+impl<T> Sink<T>
+    where T: Eq + Hash
+{
+    pub(crate) fn new(
+        buffer_pool_rx: Receiver<Vec<Sample<T>>>,
+        data_tx: channel::Sender<Vec<Sample<T>>>,
+        control_tx: channel::Sender<ControlMessage<T>>,
+        batch_size: usize,
+    ) -> Sink<T> {
         Sink {
-            conf: conf,
-            poll: poll,
             buffer_pool_rx: buffer_pool_rx,
-            buffer_pool_tx: buffer_pool_tx,
             data_tx: data_tx,
-            data_rx: data_rx,
             control_tx: control_tx,
-            control_rx: control_rx,
-            facets: HashSet::new(),
-            counter: Counter::new(),
-            gauge: Gauge::new(),
-            histogram: Histogram::new(Duration::from_secs(10), Duration::from_secs(1)),
-            percentiles: default_percentiles(),
-            last_upkeep: Instant::now(),
+            buffer: None,
+            batch_size: batch_size,
         }
     }
 
-    /// Gets a builder to configure a `Sink` instance with.
-    pub fn builder() -> Configuration<T> {
-        Configuration::default()
-    }
+    /// Sends a metric sample to the receiver.
+    pub fn send(&mut self, sample: Sample<T>) -> Result<(), io::Error> {
+        let mut buffer = match self.buffer.take() {
+            None => {
+                self.buffer_pool_rx.recv()
+                    .ok_or(io_error("failed to get sample buffer"))?
+            },
+            Some(buffer) => buffer,
+        };
 
-    /// Creates a `Source` attached to this sink.
-    pub fn get_source(&self) -> Source<T> {
-        Source::new(
-            self.buffer_pool_rx.clone(),
-            self.data_tx.clone(),
-            self.control_tx.clone(),
-            self.conf.batch_size,
-        )
-    }
-
-    /// Creates a `Controller` attached to this sink.
-    pub fn get_controller(&self) -> Controller<T> {
-        Controller::new(self.control_tx.clone())
-    }
-
-    /// Turns the sink, performing a single iteration of processing.
-    ///
-    /// A single turn involves performing upkeep (adjusting histograms to make sure their windowing
-    /// is correct) and doing a single poll to see if any new data or control messages are
-    /// available.
-    ///
-    /// By default, the poll delay, or how long the call to `poll` will wait before timing out, is
-    /// set at 100ms.  This is important as we want to ensure the `poll` eventually returns during
-    /// periods of inactivity so it can be be recalled (when running via `run`) and perform
-    /// continued upkeep.
-    pub fn turn(&mut self) {
-        // Run upkeep before doing anything else.
-        let now = Instant::now();
-        if now >= self.last_upkeep + Duration::from_millis(250) {
-            self.histogram.upkeep(now);
+        buffer.push(sample);
+        if buffer.len() >= self.batch_size {
+            self.data_tx.send(buffer)
+                .map_err(|_| io_error("failed to send sample buffer"))?;
+        } else {
+            self.buffer = Some(buffer);
         }
 
-        let mut events = Events::with_capacity(1024);
-        self.poll.poll(&mut events, self.conf.poll_delay).unwrap();
-        for event in events.iter() {
-            let token = event.token();
-            if token == DATA {
-                if let Ok(mut results) = self.data_rx.recv() {
-                    for result in &results {
-                        self.counter.update(result);
-                        self.gauge.update(result);
-                        self.histogram.update(result);
-                    }
-                    results.clear();
-                    let _ = self.buffer_pool_tx.send(results);
-                }
-            } else if token == CONTROL {
-                if let Ok(msg) = self.control_rx.recv() {
-                    match msg {
-                        ControlMessage::AddFacet(facet) => self.add_facet(facet),
-                        ControlMessage::RemoveFacet(facet) => self.remove_facet(facet),
-                        ControlMessage::Snapshot(tx) => {
-                            let mut snapshot = Snapshot::new();
-                            for facet in &self.facets {
-								match *facet {
-									Facet::Count(ref key) => {
-										snapshot.set_count(
-											key.clone(),
-											self.counter.value(key.clone())
-										);
-									},
-                                    Facet::Gauge(ref key) => {
-                                        snapshot.set_value(
-                                            key.clone(),
-                                            self.gauge.value(key.clone())
-                                        );
-                                    },
-                                    Facet::TimingPercentile(ref key) => {
-                                        match self.histogram.snapshot(key.clone()) {
-                                            Some(hs) => {
-                                                snapshot.set_timing_percentiles(key.clone(), hs, &self.percentiles)
-                                            },
-                                            None => {},
-                                        }
-                                    },
-                                    Facet::ValuePercentile(ref key) => {
-                                        match self.histogram.snapshot(key.clone()) {
-                                            Some(hs) => {
-                                                snapshot.set_value_percentiles(key.clone(), hs, &self.percentiles)
-                                            },
-                                            None => {},
-                                        }
-                                    },
-								}
-							}
-                            let _ = tx.send(snapshot);
-                        },
-                    }
-                }
-            }
-        }
+        Ok(())
     }
 
-    /// Runs the sink endlessly.
-    pub fn run(&mut self) {
-        loop {
-            self.turn();
-        }
-    }
-
-    /// Registers a facet with the sink.
+    /// Registers a facet with the receiver.
     pub fn add_facet(&mut self, facet: Facet<T>) {
-        match facet.clone() {
-            Facet::Count(t) => self.counter.register(t),
-            Facet::Gauge(t) => self.gauge.register(t),
-            Facet::TimingPercentile(t) => self.histogram.register(t),
-            Facet::ValuePercentile(t) => self.histogram.register(t),
-        }
-
-        self.facets.insert(facet);
+        let _ = self.control_tx.send(ControlMessage::AddFacet(facet));
     }
 
-    /// Deregisters a facet from the sink.
+    /// Deregisters a facet from the receiver.
     pub fn remove_facet(&mut self, facet: Facet<T>) {
-        match facet.clone() {
-            Facet::Count(t) => self.counter.deregister(t),
-            Facet::Gauge(t) => self.gauge.deregister(t),
-            Facet::TimingPercentile(t) => self.histogram.deregister(t),
-            Facet::ValuePercentile(t) => self.histogram.deregister(t),
-        }
-
-        self.facets.remove(&facet);
+        let _ = self.control_tx.send(ControlMessage::RemoveFacet(facet));
     }
 }

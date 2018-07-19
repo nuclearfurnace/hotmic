@@ -1,10 +1,10 @@
-use sink::Sink;
+use receiver::Receiver;
 use std::hash::Hash;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-/// A configuration builder for `Sink`.
+/// A configuration builder for `Receiver`.
 #[derive(Clone)]
 pub struct Configuration<T> {
     metric_type: PhantomData<T>,
@@ -36,7 +36,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Configuration<T> {
     ///
     /// This controls how many buffers are pre-allocated, and conversely, how many buffers are able
     /// to be sent into the data channel without blocking.  If all buffers are consumed, any send
-    /// activity by a `Source` will block until a buffer is returned and made available.
+    /// activity by a `Sink` will block until a buffer is returned and made available.
     ///
     /// Tweaking this value allows for controlling the trade-off between memory consumption -- as
     /// all buffers are preallocated -- and throughput burst capabilities as a burst of metrics
@@ -53,7 +53,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Configuration<T> {
     ///
     /// Defaults to `128`.
     ///
-    /// All `Source`s will internally buffer up to `batch_size` samples before sending them to the
+    /// All `Sink`s will internally buffer up to `batch_size` samples before sending them to the
     /// `Sink`.
     ///
     /// The default batch size of 128 was chosen empirically to support a near-theoretical
@@ -61,7 +61,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Configuration<T> {
     /// work very well if you have a high enough rate of metrics to continually flush the buffers,
     /// allowing you extremely low overhead and responsiveness.
     ///
-    /// If your metric rate per `Source` is low, or infrequent, or you want all metrics to have
+    /// If your metric rate per `Sink` is low, or infrequent, or you want all metrics to have
     /// real-time values shown in snapshots, you should change this to a lower number.
     ///
     /// Batch sizes of 1 to 8 will provide roughly 425k samples/second of throughput per item, so
@@ -83,8 +83,8 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Configuration<T> {
         self
     }
 
-    /// Create a `Sink` based on this configuration.
-    pub fn build(self) -> Sink<T> {
-        Sink::from_config(self)
+    /// Create a `Receiver` based on this configuration.
+    pub fn build(self) -> Receiver<T> {
+        Receiver::from_config(self)
     }
 }

@@ -9,7 +9,7 @@ use std::thread;
 use std::env;
 use std::time::{Instant, Duration};
 use getopts::Options;
-use hotmic::{Facet, Sample, Source, Sink, Percentile};
+use hotmic::{Facet, Sample, Receiver, Sink, Percentile};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Metric {
@@ -27,13 +27,13 @@ impl fmt::Display for Metric {
 }
 
 struct Generator {
-    stats: Source<Metric>,
+    stats: Sink<Metric>,
     t0: Option<Instant>,
     gauge: u64,
 }
 
 impl Generator {
-    fn new(stats: Source<Metric>) -> Generator {
+    fn new(stats: Sink<Metric>) -> Generator {
         Generator {
             stats: stats,
             t0: None,
@@ -111,28 +111,28 @@ fn main() {
     info!("capacity: {}", capacity);
     info!("batch size: {}", batch);
 
-    let mut sink = Sink::builder()
+    let mut receiver = Receiver::builder()
         .capacity(capacity)
         .batch_size(batch)
         .build();
 
-    sink.add_facet(Facet::Count(Metric::Ok));
-    sink.add_facet(Facet::TimingPercentile(Metric::Ok));
-    sink.add_facet(Facet::Count(Metric::Total));
-    sink.add_facet(Facet::Gauge(Metric::Total));
+    receiver.add_facet(Facet::Count(Metric::Ok));
+    receiver.add_facet(Facet::TimingPercentile(Metric::Ok));
+    receiver.add_facet(Facet::Count(Metric::Total));
+    receiver.add_facet(Facet::Gauge(Metric::Total));
 
     info!("sink configured");
 
     // Spin up our sample producers.
     for _ in 0..producers {
-        let s = sink.get_source();
+        let s = receiver.get_sink();
         thread::spawn(move || { Generator::new(s).run(); });
     }
 
     // Spin up the sink and let 'er rip.
-    let controller = sink.get_controller();
+    let controller = receiver.get_controller();
 
-    thread::spawn(move || { sink.run(); });
+    thread::spawn(move || { receiver.run(); });
 
     // Poll the controller to figure out the sample rate.
     let mut total = 0;
