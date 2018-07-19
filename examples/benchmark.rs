@@ -9,7 +9,7 @@ use std::thread;
 use std::env;
 use std::time::{Instant, Duration};
 use getopts::Options;
-use hotmic::{Facet, Sample, Source, Sink, Quantile};
+use hotmic::{Facet, Sample, Source, Sink, Percentile};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Metric {
@@ -157,15 +157,15 @@ fn main() {
         info!("rate: {} samples per second", rate);
         info!(
             "latency (ns): p50: {} p90: {} p99: {} p999: {} max: {}",
-            snapshot.timing_quantile(&Metric::Ok, Quantile("p50".to_owned(), 0.5))
+            snapshot.timing_percentile(&Metric::Ok, Percentile("p50".to_owned(), 0.5))
                 .unwrap_or(&0),
-            snapshot.timing_quantile(&Metric::Ok, Quantile("p90".to_owned(), 0.9))
+            snapshot.timing_percentile(&Metric::Ok, Percentile("p90".to_owned(), 0.9))
                 .unwrap_or(&0),
-            snapshot.timing_quantile(&Metric::Ok, Quantile("p99".to_owned(), 0.99))
+            snapshot.timing_percentile(&Metric::Ok, Percentile("p99".to_owned(), 0.99))
                 .unwrap_or(&0),
-            snapshot.timing_quantile(&Metric::Ok, Quantile("p999".to_owned(), 0.999))
+            snapshot.timing_percentile(&Metric::Ok, Percentile("p999".to_owned(), 0.999))
                 .unwrap_or(&0),
-            snapshot.timing_quantile(&Metric::Ok, Quantile("max".to_owned(), 1.0))
+            snapshot.timing_percentile(&Metric::Ok, Percentile("max".to_owned(), 1.0))
                 .unwrap_or(&0)
         );
 

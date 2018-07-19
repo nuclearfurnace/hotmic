@@ -3,6 +3,7 @@ use std::hash::Hash;
 use channel;
 use control::ControlMessage;
 use data::{Facet, Sample};
+use helper::io_error;
 use crossbeam_channel::Receiver;
 
 /// An independent handle for sending metric samples into the sink.
@@ -20,7 +21,7 @@ pub struct Source<T> {
 impl<T> Source<T>
     where T: Eq + Hash
 {
-    pub fn new(
+    pub(crate) fn new(
         buffer_pool_rx: Receiver<Vec<Sample<T>>>,
         data_tx: channel::Sender<Vec<Sample<T>>>,
         control_tx: channel::Sender<ControlMessage<T>>,
@@ -65,8 +66,4 @@ impl<T> Source<T>
     pub fn remove_facet(&mut self, facet: Facet<T>) {
         let _ = self.control_tx.send(ControlMessage::RemoveFacet(facet));
     }
-}
-
-fn io_error(reason: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, reason)
 }

@@ -46,3 +46,71 @@ impl<T> Counter<T>
         *self.data.get(&key).unwrap_or(&0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+    use super::Counter;
+    use data::Sample;
+
+    #[test]
+    fn test_counter_unregistered_update() {
+        let mut counter = Counter::new();
+
+        let key = "foo".to_owned();
+        let sample = Sample::Count(key.clone(), 42);
+        counter.update(&sample);
+
+        let value = counter.value(key);
+        assert_eq!(value, 0);
+    }
+
+    #[test]
+    fn test_counter_simple_update() {
+        let mut counter = Counter::new();
+
+        let key = "foo".to_owned();
+        counter.register(key.clone());
+
+        let sample = Sample::Count(key.clone(), 42);
+        counter.update(&sample);
+
+        let value = counter.value(key);
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_counter_sample_support() {
+        let mut counter = Counter::new();
+
+        // Count samples.
+        let ckey = "ckey".to_owned();
+        counter.register(ckey.clone());
+
+        let csample = Sample::Count(ckey.clone(), 42);
+        counter.update(&csample);
+
+        let cvalue = counter.value(ckey);
+        assert_eq!(cvalue, 42);
+
+        // Timing samples.
+        let tkey = "tkey".to_owned();
+        counter.register(tkey.clone());
+
+        let tsample = Sample::Timing(tkey.clone(), Instant::now(), Instant::now(), 73);
+        counter.update(&tsample);
+
+        let tvalue = counter.value(tkey);
+        assert_eq!(tvalue, 73);
+
+        // Value samples.
+        let vkey = "vkey".to_owned();
+        counter.register(vkey.clone());
+
+        let vsample = Sample::Value(vkey.clone(), 22);
+        counter.update(&vsample);
+
+        let vvalue = counter.value(vkey);
+        assert_eq!(vvalue, 1);
+    }
+}

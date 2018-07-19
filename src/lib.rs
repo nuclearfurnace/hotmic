@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate log;
 extern crate fnv;
 extern crate mio;
@@ -14,7 +13,8 @@ mod source;
 mod sink;
 mod helper;
 
-pub use data::{Facet, Sample, Quantile};
+pub use configuration::Configuration;
+pub use data::{Facet, Sample, Percentile};
 pub use sink::Sink;
 pub use source::Source;
 pub use control::Controller;

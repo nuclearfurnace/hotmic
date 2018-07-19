@@ -4,7 +4,7 @@ use channel;
 use configuration::Configuration;
 use control::{ControlMessage, Controller};
 use source::Source;
-use data::{Facet, Sample, Counter, Gauge, Histogram, Snapshot, Quantile, default_quantiles};
+use data::{Facet, Sample, Counter, Gauge, Histogram, Snapshot, Percentile, default_percentiles};
 use std::hash::Hash;
 use std::fmt::{Debug, Display};
 use std::time::{Instant, Duration};
@@ -30,12 +30,12 @@ pub struct Sink<T> {
     counter: Counter<T>,
     gauge: Gauge<T>,
     histogram: Histogram<T>,
-    quantiles: Vec<Quantile>,
+    percentiles: Vec<Percentile>,
     last_upkeep: Instant,
 }
 
 impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
-    pub fn from_config(conf: Configuration<T>) -> Sink<T> {
+    pub(crate) fn from_config(conf: Configuration<T>) -> Sink<T> {
         // Create our data, control, and buffer channels.
         let (data_tx, data_rx) = channel::channel::<Vec<Sample<T>>>(conf.capacity);
         let (control_tx, control_rx) = channel::channel::<ControlMessage<T>>(conf.capacity);
@@ -64,7 +64,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
             counter: Counter::new(),
             gauge: Gauge::new(),
             histogram: Histogram::new(Duration::from_secs(10), Duration::from_secs(1)),
-            quantiles: default_quantiles(),
+            percentiles: default_percentiles(),
             last_upkeep: Instant::now(),
         }
     }
@@ -131,7 +131,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
                                     Facet::TimingPercentile(ref key) => {
                                         match self.histogram.snapshot(key.clone()) {
                                             Some(hs) => {
-                                                snapshot.set_timing_quantile(key.clone(), hs, &self.quantiles)
+                                                snapshot.set_timing_percentiles(key.clone(), hs, &self.percentiles)
                                             },
                                             None => {},
                                         }
@@ -139,7 +139,7 @@ impl<T: Send + Eq + Hash + Display + Debug + Clone> Sink<T> {
                                     Facet::ValuePercentile(ref key) => {
                                         match self.histogram.snapshot(key.clone()) {
                                             Some(hs) => {
-                                                snapshot.set_value_quantile(key.clone(), hs, &self.quantiles)
+                                                snapshot.set_value_percentiles(key.clone(), hs, &self.percentiles)
                                             },
                                             None => {},
                                         }

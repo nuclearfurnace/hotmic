@@ -3,8 +3,7 @@ use fnv::FnvHashMap;
 use hdrhistogram::Histogram as HdrHistogram;
 use std::time::{Instant, Duration};
 use super::Sample;
-
-const TEN_MINS_NS: u64 = 10 * 60 * 1_000_000_000;
+use helper::duration_as_nanos;
 
 pub struct Histogram<T> {
     window: Duration,
@@ -79,7 +78,7 @@ impl WindowedHistogram {
         let mut buckets = Vec::with_capacity(num_buckets);
 
         for _ in 0..num_buckets {
-            let histogram = HdrHistogram::new_with_bounds(1, TEN_MINS_NS, 3).unwrap();
+            let histogram = HdrHistogram::new_with_bounds(1, u64::max_value(), 3).unwrap();
             buckets.push(histogram);
         }
 
@@ -94,9 +93,9 @@ impl WindowedHistogram {
 
     pub fn upkeep(&mut self, at: Instant) {
         if at >= self.last_upkeep + self.granularity {
-            self.buckets[self.bucket_index].clear();
             self.bucket_index += 1;
             self.bucket_index %= self.num_buckets;
+            self.buckets[self.bucket_index].clear();
             self.last_upkeep = at;
         }
     }
@@ -115,6 +114,150 @@ impl WindowedHistogram {
     }
 }
 
-fn duration_as_nanos(d: Duration) -> u64 {
-    (d.as_secs() * 1_000_000_000) + d.subsec_nanos() as u64
+#[cfg(test)]
+mod tests {
+    use std::time::{Instant, Duration};
+    use super::{Histogram, WindowedHistogram};
+    use data::Sample;
+
+    #[test]
+    fn test_histogram_unregistered_update() {
+        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
+
+        let key = "foo".to_owned();
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_millis(100);
+        let sample = Sample::Timing(key.clone(), t0, t1, 1);
+        histogram.update(&sample);
+
+        let value = histogram.snapshot(key);
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_histogram_simple_update() {
+        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
+
+        let key = "foo".to_owned();
+        histogram.register(key.clone());
+
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_nanos(1245);
+        let sample = Sample::Timing(key.clone(), t0, t1, 1);
+        histogram.update(&sample);
+
+        let value = histogram.snapshot(key);
+        assert!(value.is_some());
+
+        let hdr = value.unwrap();
+        assert_eq!(hdr.len(), 1);
+        assert_eq!(hdr.max(), 1245);
+    }
+
+    #[test]
+    fn test_histogram_sample_support() {
+        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
+
+        // Count samples.
+        let ckey = "ckey".to_owned();
+        histogram.register(ckey.clone());
+
+        let csample = Sample::Count(ckey.clone(), 42);
+        histogram.update(&csample);
+
+        let cvalue = histogram.snapshot(ckey);
+        assert!(cvalue.is_some());
+
+        let chdr = cvalue.unwrap();
+        assert_eq!(chdr.len(), 0);
+
+        // Timing samples.
+        let tkey = "tkey".to_owned();
+        histogram.register(tkey.clone());
+
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_nanos(1692);
+        let tsample = Sample::Timing(tkey.clone(), t0, t1, 73);
+        histogram.update(&tsample);
+
+        let tvalue = histogram.snapshot(tkey);
+        assert!(tvalue.is_some());
+
+        let thdr = tvalue.unwrap();
+        assert_eq!(thdr.len(), 1);
+        assert_eq!(thdr.max(), 1692);
+
+        // Value samples.
+        let vkey = "vkey".to_owned();
+        histogram.register(vkey.clone());
+
+        let vsample = Sample::Value(vkey.clone(), 22);
+        histogram.update(&vsample);
+
+        let vvalue = histogram.snapshot(vkey);
+        assert!(vvalue.is_some());
+
+        let vhdr = vvalue.unwrap();
+        assert_eq!(vhdr.len(), 1);
+        assert_eq!(vhdr.max(), 22);
+    }
+
+    #[test]
+    fn test_windowed_histogram_rollover() {
+        let mut wh = WindowedHistogram::new(Duration::new(5, 0), Duration::new(1, 0));
+        let now = Instant::now();
+
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 0);
+
+        wh.update(1);
+        wh.update(2);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 2);
+
+        // Roll forward 3 seconds, should still have everything.
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 2);
+
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 2);
+
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 2);
+
+        // Pump in some new values.
+        wh.update(3);
+        wh.update(4);
+        wh.update(5);
+
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 5);
+
+        // Roll forward 3 seconds, and make sure the first two values are gone.
+        // You might think this should be 2 seconds, but we have one extra bucket
+        // allocated so that there's always a clear bucket that we can write into.
+        // This means we have more than our total window, but only having the exact
+        // number of buckets would mean we were constantly missing a bucket's worth
+        // of granularity.
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 5);
+
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 5);
+
+        let now = now + Duration::new(1, 0);
+        wh.upkeep(now);
+        let merged = wh.merged();
+        assert_eq!(merged.len(), 3);
+    }
 }
