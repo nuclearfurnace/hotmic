@@ -67,3 +67,15 @@ impl<T> Sink<T>
         let _ = self.control_tx.send(ControlMessage::RemoveFacet(facet));
     }
 }
+
+impl<T> Clone for Sink<T> {
+    fn clone(&self) -> Sink<T> {
+        Sink {
+            buffer_pool_rx: self.buffer_pool_rx.clone(),
+            data_tx: self.data_tx.clone(),
+            control_tx: self.control_tx.clone(),
+            buffer: None,
+            batch_size: self.batch_size,
+        }
+    }
+}

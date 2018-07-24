@@ -14,7 +14,7 @@ mod sink;
 mod helper;
 
 pub use configuration::Configuration;
-pub use data::{Facet, Sample, Percentile};
+pub use data::{Facet, Sample, Percentile, Snapshot};
 pub use sink::Sink;
 pub use receiver::Receiver;
 pub use control::Controller;

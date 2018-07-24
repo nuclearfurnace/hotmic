@@ -1,4 +1,4 @@
-use lazycell::{AtomicLazyCell, LazyCell};
+use lazycell::AtomicLazyCell;
 use mio::{Evented, Poll, PollOpt, Ready, Registration, SetReadiness, Token};
 use crossbeam_channel;
 use std::any::Any;
@@ -27,7 +27,7 @@ fn control() -> (SenderControl, ReceiverControl) {
     let tx = SenderControl { inner: Arc::clone(&inner) };
 
     let rx = ReceiverControl {
-        registration: LazyCell::new(),
+        registration: AtomicLazyCell::new(),
         inner,
     };
 
@@ -39,7 +39,7 @@ struct SenderControl {
 }
 
 struct ReceiverControl {
-    registration: LazyCell<Registration>,
+    registration: AtomicLazyCell<Registration>,
     inner: Arc<Inner>,
 }
 

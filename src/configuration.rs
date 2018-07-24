@@ -1,6 +1,6 @@
 use receiver::Receiver;
 use std::hash::Hash;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::marker::PhantomData;
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ impl<T> Default for Configuration<T> {
     }
 }
 
-impl<T: Send + Eq + Hash + Display + Debug + Clone> Configuration<T> {
+impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
     /// Creates a new `Configuration` with default values.
     pub fn new() -> Configuration<T> {
         Default::default()

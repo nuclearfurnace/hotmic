@@ -6,7 +6,7 @@ use control::{ControlMessage, Controller};
 use sink::Sink;
 use data::{Facet, Sample, Counter, Gauge, Histogram, Snapshot, Percentile, default_percentiles};
 use std::hash::Hash;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::time::{Instant, Duration};
 use std::collections::HashSet;
 
@@ -35,7 +35,7 @@ pub struct Receiver<T> {
     last_upkeep: Instant,
 }
 
-impl<T: Send + Eq + Hash + Display + Debug + Clone> Receiver<T> {
+impl<T: Send + Eq + Hash + Display + Clone> Receiver<T> {
     pub(crate) fn from_config(conf: Configuration<T>) -> Receiver<T> {
         // Create our data, control, and buffer channels.
         let (data_tx, data_rx) = channel::channel::<Vec<Sample<T>>>(conf.capacity);
