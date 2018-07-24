@@ -1,6 +1,6 @@
 [package]
 name = "hotmic"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
 
 license = "MIT"
