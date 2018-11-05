@@ -23,7 +23,7 @@ lto = true
 [dependencies]
 mio = "^0.6"
 lazycell = "1"
-crossbeam-channel = "^0.2"
+crossbeam-channel = "^0.3"
 hdrhistogram = "^6.0"
 fnv = "^1.0"
 log = "^0.4"
