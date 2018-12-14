@@ -1,182 +1,123 @@
-use crossbeam_channel;
-use mio::{Poll, Events, Ready, Token, PollOpt};
-use channel;
-use configuration::Configuration;
-use control::{ControlMessage, Controller};
-use sink::Sink;
-use data::{Facet, Sample, Counter, Gauge, Histogram, Snapshot, Percentile, default_percentiles};
-use std::hash::Hash;
-use std::fmt::Display;
-use std::time::{Instant, Duration};
-use std::collections::HashSet;
-
-const DATA: Token = Token(5);
-const CONTROL: Token = Token(15);
+use super::{
+    configuration::Configuration,
+    control::{ControlMessage, Controller},
+    data::{
+        default_percentiles, Counter, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot, SnapshotBuilder,
+    },
+    sink::Sink,
+};
+use crossbeam_channel::{self, bounded, tick, TryRecvError};
+use std::{
+    collections::HashSet,
+    fmt::Display,
+    hash::Hash,
+    time::{Duration, Instant},
+};
 
 /// Metrics receiver which aggregates and processes samples.
-pub struct Receiver<T> {
-    conf: Configuration<T>,
-
+pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
     // Sample aggregation machinery.
-    poll: Poll,
-    buffer_pool_tx: crossbeam_channel::Sender<Vec<Sample<T>>>,
-    buffer_pool_rx: crossbeam_channel::Receiver<Vec<Sample<T>>>,
-    data_tx: channel::Sender<Vec<Sample<T>>>,
-    data_rx: channel::Receiver<Vec<Sample<T>>>,
-    control_tx: channel::Sender<ControlMessage<T>>,
-    control_rx: channel::Receiver<ControlMessage<T>>,
-    facets: HashSet<Facet<T>>,
+    data_tx: crossbeam_channel::Sender<Sample<ScopedKey<T>>>,
+    data_rx: crossbeam_channel::Receiver<Sample<ScopedKey<T>>>,
+    control_tx: crossbeam_channel::Sender<ControlMessage<ScopedKey<T>>>,
+    control_rx: crossbeam_channel::Receiver<ControlMessage<ScopedKey<T>>>,
+    facets: HashSet<Facet<ScopedKey<T>>>,
 
     // Metric machinery.
-    counter: Counter<T>,
-    gauge: Gauge<T>,
-    histogram: Histogram<T>,
+    counter: Counter<ScopedKey<T>>,
+    gauge: Gauge<ScopedKey<T>>,
+    histogram: Histogram<ScopedKey<T>>,
     percentiles: Vec<Percentile>,
-    last_upkeep: Instant,
 }
 
-impl<T: Send + Eq + Hash + Display + Clone> Receiver<T> {
+impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub(crate) fn from_config(conf: Configuration<T>) -> Receiver<T> {
         // Create our data, control, and buffer channels.
-        let (data_tx, data_rx) = channel::channel::<Vec<Sample<T>>>(conf.capacity);
-        let (control_tx, control_rx) = channel::channel::<ControlMessage<T>>(conf.capacity);
-        let (buffer_pool_tx, buffer_pool_rx) = crossbeam_channel::bounded::<Vec<Sample<T>>>(conf.capacity);
-
-        // Pre-allocate our sample batch buffers and put them into the buffer channel.
-        for _ in 0..conf.capacity {
-            let _ = buffer_pool_tx.send(Vec::with_capacity(conf.batch_size));
-        }
-
-        // Configure our poller.
-        let poll = Poll::new().unwrap();
-        poll.register(&data_rx, DATA, Ready::readable(), PollOpt::level()).unwrap();
-        poll.register(&control_rx, CONTROL, Ready::readable(), PollOpt::level()).unwrap();
+        let (data_tx, data_rx) = bounded(conf.capacity);
+        let (control_tx, control_rx) = bounded(1024);
 
         Receiver {
-            conf: conf,
-            poll: poll,
-            buffer_pool_rx: buffer_pool_rx,
-            buffer_pool_tx: buffer_pool_tx,
-            data_tx: data_tx,
-            data_rx: data_rx,
-            control_tx: control_tx,
-            control_rx: control_rx,
+            data_tx,
+            data_rx,
+            control_tx,
+            control_rx,
             facets: HashSet::new(),
             counter: Counter::new(),
             gauge: Gauge::new(),
             histogram: Histogram::new(Duration::from_secs(10), Duration::from_secs(1)),
             percentiles: default_percentiles(),
-            last_upkeep: Instant::now(),
         }
     }
 
     /// Gets a builder to configure a `Receiver` instance with.
-    pub fn builder() -> Configuration<T> {
-        Configuration::default()
-    }
+    pub fn builder() -> Configuration<T> { Configuration::default() }
 
     /// Creates a `Sink` bound to this receiver.
-    pub fn get_sink(&self) -> Sink<T> {
-        Sink::new(
-            self.buffer_pool_rx.clone(),
-            self.data_tx.clone(),
-            self.control_tx.clone(),
-            self.conf.batch_size,
-        )
-    }
+    pub fn get_sink(&self) -> Sink<T> { Sink::new(self.data_tx.clone(), self.control_tx.clone()) }
 
     /// Creates a `Controller` bound to this receiver.
-    pub fn get_controller(&self) -> Controller<T> {
-        Controller::new(self.control_tx.clone())
-    }
+    pub fn get_controller(&self) -> Controller<T> { Controller::new(self.control_tx.clone()) }
 
-    /// Run the receiver for a single turn.
-    ///
-    /// A single turn involves performing upkeep (adjusting histograms to make sure their windowing
-    /// is correct) and doing a single poll to see if any new data or control messages are
-    /// available.
-    ///
-    /// By default, the poll delay, or how long the call to `poll` will wait before timing out, is
-    /// set at 100ms.  This is important as we want to ensure the `poll` eventually returns during
-    /// periods of inactivity so it can be be recalled (when running via `run`) and perform
-    /// continued upkeep.
-    pub fn turn(&mut self) {
-        // Run upkeep before doing anything else.
-        let now = Instant::now();
-        if now >= self.last_upkeep + Duration::from_millis(250) {
-            self.histogram.upkeep(now);
+    fn get_snapshot(&mut self) -> Snapshot {
+        let mut snapshot = SnapshotBuilder::new();
+        for facet in &self.facets {
+            match *facet {
+                Facet::Count(ref key) => snapshot.set_count(key.clone(), self.counter.value(key.clone())),
+                Facet::Gauge(ref key) => snapshot.set_value(key.clone(), self.gauge.value(key.clone())),
+                Facet::TimingPercentile(ref key) => {
+                    if let Some(hs) = self.histogram.snapshot(key.clone()) {
+                        snapshot.set_timing_percentiles(key.clone(), hs, &self.percentiles)
+                    }
+                },
+                Facet::ValuePercentile(ref key) => {
+                    if let Some(hs) = self.histogram.snapshot(key.clone()) {
+                        snapshot.set_value_percentiles(key.clone(), hs, &self.percentiles)
+                    }
+                },
+            }
         }
 
-        let mut events = Events::with_capacity(1024);
-        self.poll.poll(&mut events, self.conf.poll_delay).unwrap();
-        for event in events.iter() {
-            let token = event.token();
-            if token == DATA {
-                if let Ok(mut results) = self.data_rx.recv() {
-                    for result in &results {
-                        self.counter.update(result);
-                        self.gauge.update(result);
-                        self.histogram.update(result);
-                    }
-                    results.clear();
-                    let _ = self.buffer_pool_tx.send(results);
-                }
-            } else if token == CONTROL {
-                if let Ok(msg) = self.control_rx.recv() {
-                    match msg {
-                        ControlMessage::AddFacet(facet) => self.add_facet(facet),
-                        ControlMessage::RemoveFacet(facet) => self.remove_facet(facet),
-                        ControlMessage::Snapshot(tx) => {
-                            let mut snapshot = Snapshot::new();
-                            for facet in &self.facets {
-								match *facet {
-									Facet::Count(ref key) => {
-										snapshot.set_count(
-											key.clone(),
-											self.counter.value(key.clone())
-										);
-									},
-                                    Facet::Gauge(ref key) => {
-                                        snapshot.set_value(
-                                            key.clone(),
-                                            self.gauge.value(key.clone())
-                                        );
-                                    },
-                                    Facet::TimingPercentile(ref key) => {
-                                        match self.histogram.snapshot(key.clone()) {
-                                            Some(hs) => {
-                                                snapshot.set_timing_percentiles(key.clone(), hs, &self.percentiles)
-                                            },
-                                            None => {},
-                                        }
-                                    },
-                                    Facet::ValuePercentile(ref key) => {
-                                        match self.histogram.snapshot(key.clone()) {
-                                            Some(hs) => {
-                                                snapshot.set_value_percentiles(key.clone(), hs, &self.percentiles)
-                                            },
-                                            None => {},
-                                        }
-                                    },
-								}
-							}
-                            let _ = tx.send(snapshot);
-                        },
-                    }
-                }
+        snapshot.into_inner()
+    }
+
+    fn process_control_msg(&mut self, msg: ControlMessage<ScopedKey<T>>) {
+        match msg {
+            ControlMessage::AddFacet(facet) => self.add_facet(facet),
+            ControlMessage::RemoveFacet(facet) => self.remove_facet(facet),
+            ControlMessage::Snapshot(tx) => {
+                let snapshot = self.get_snapshot();
+                let _ = tx.send(snapshot);
+            },
+        }
+    }
+
+    /// Run the receiver.
+    pub fn run(&mut self) {
+        let upkeep_rx = tick(Duration::from_millis(100));
+        loop {
+            if upkeep_rx.try_recv().is_ok() {
+                let now = Instant::now();
+                self.histogram.upkeep(now);
+            }
+
+            while let Ok(msg) = self.control_rx.try_recv() {
+                self.process_control_msg(msg);
+            }
+
+            match self.data_rx.try_recv() {
+                Ok(item) => {
+                    self.counter.update(&item);
+                    self.gauge.update(&item);
+                    self.histogram.update(&item);
+                },
+                Err(TryRecvError::Empty) => {},
+                Err(e) => eprintln!("error receiving data message: {}", e),
             }
         }
     }
 
-    /// Runs the receiver endlessly.
-    pub fn run(&mut self) {
-        loop {
-            self.turn();
-        }
-    }
-
     /// Registers a facet with the receiver.
-    pub fn add_facet(&mut self, facet: Facet<T>) {
+    fn add_facet(&mut self, facet: Facet<ScopedKey<T>>) {
         match facet.clone() {
             Facet::Count(t) => self.counter.register(t),
             Facet::Gauge(t) => self.gauge.register(t),
@@ -188,7 +129,7 @@ impl<T: Send + Eq + Hash + Display + Clone> Receiver<T> {
     }
 
     /// Deregisters a facet from the receiver.
-    pub fn remove_facet(&mut self, facet: Facet<T>) {
+    fn remove_facet(&mut self, facet: Facet<ScopedKey<T>>) {
         match facet.clone() {
             Facet::Count(t) => self.counter.deregister(t),
             Facet::Gauge(t) => self.gauge.deregister(t),

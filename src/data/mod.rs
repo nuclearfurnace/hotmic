@@ -1,17 +1,19 @@
-use std::marker::PhantomData;
-use std::time::Instant;
-use fnv::FnvHashMap;
-use std::hash::Hash;
-use std::fmt::Display;
+use super::helper::duration_as_nanos;
+use fnv::FnvBuildHasher;
+use hashbrown::HashMap;
 use hdrhistogram::Histogram as HdrHistogram;
+use std::{
+    fmt::{self, Display},
+    hash::Hash,
+    marker::PhantomData,
+    time::Instant,
+};
 
 pub mod counter;
 pub mod gauge;
 pub mod histogram;
 
-pub(crate) use self::counter::Counter;
-pub(crate) use self::gauge::Gauge;
-pub(crate) use self::histogram::Histogram;
+pub(crate) use self::{counter::Counter, gauge::Gauge, histogram::Histogram};
 
 /// Type of computation against aggregated/processed samples.
 ///
@@ -38,14 +40,14 @@ pub enum Facet<T> {
     /// Timing-specific percentiles.
     ///
     /// The histograms that back percentiles are currently hard-coded to track a windowed view of
-    /// 60 seconds, with a 1 second interval.  That is, they only store the last 60 seconds worth
+    /// 60 seconds, with a 1 second interval.  That is, they only store the last 10 seconds worth
     /// of data that they've been given.
     TimingPercentile(T),
 
     /// Value-specific percentiles.
     ///
     /// The histograms that back percentiles are currently hard-coded to track a windowed view of
-    /// 60 seconds, with a 1 second interval.  That is, they only store the last 60 seconds worth
+    /// 60 seconds, with a 1 second interval.  That is, they only store the last 10 seconds worth
     /// of data that they've been given.
     ValuePercentile(T),
 }
@@ -64,8 +66,7 @@ pub enum Facet<T> {
 /// There are multiple sample types to support the different types of measurements, which each have
 /// their own specific data they must carry.
 #[derive(Debug)]
-pub enum Sample<T>
-{
+pub enum Sample<T> {
     /// A timed sample.
     ///
     /// Includes the start and end times, as well as a count field.
@@ -90,6 +91,54 @@ pub enum Sample<T>
     Value(T, u64),
 }
 
+/// A scoped metric key.
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(String, T);
+
+impl<T: Clone + Hash + Eq + Display> Display for ScopedKey<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.0.is_empty() {
+            write!(f, "{}", self.1)
+        } else {
+            write!(f, "{}.{}", self.0, self.1)
+        }
+    }
+}
+
+impl<T: Clone + Eq + Hash + Display> Facet<T> {
+    pub(crate) fn into_scoped(self, scope: String) -> Facet<ScopedKey<T>> {
+        match self {
+            Facet::Count(key) => Facet::Count(ScopedKey(scope, key)),
+            Facet::Gauge(key) => Facet::Gauge(ScopedKey(scope, key)),
+            Facet::TimingPercentile(key) => Facet::TimingPercentile(ScopedKey(scope, key)),
+            Facet::ValuePercentile(key) => Facet::ValuePercentile(ScopedKey(scope, key)),
+        }
+    }
+}
+
+impl<T: Clone + Eq + Hash + Display> Sample<T> {
+    pub(crate) fn into_scoped(self, scope: String) -> Sample<ScopedKey<T>> {
+        match self {
+            Sample::Timing(key, start, end, count) => Sample::Timing(ScopedKey(scope, key), start, end, count),
+            Sample::Count(key, value) => Sample::Count(ScopedKey(scope, key), value),
+            Sample::Value(key, value) => Sample::Value(ScopedKey(scope, key), value),
+        }
+    }
+}
+
+impl<T: Clone + Hash + Eq + Display> Display for Sample<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Sample::Timing(key, start, end, count) => {
+                let delta = duration_as_nanos(*end - *start);
+                write!(f, "Sample::Timing({}, {}ns, {})", key, delta, count)
+            },
+            Sample::Count(key, value) => write!(f, "Sample::Count({}, {})", key, value),
+            Sample::Value(key, value) => write!(f, "Sample::Value({}, {})", key, value),
+        }
+    }
+}
+
 /// A labeled percentile.
 ///
 /// This represents a floating-point value from 0 to 100, with a string label to be used for
@@ -112,60 +161,17 @@ pub fn default_percentiles() -> Vec<Percentile> {
 }
 
 /// A point-in-time view of metric data.
-pub struct Snapshot<T> {
-    marker: PhantomData<T>,
-    pub signed_data: FnvHashMap<String, i64>,
-    pub unsigned_data: FnvHashMap<String, u64>,
+#[derive(Default)]
+pub struct Snapshot {
+    pub signed_data: HashMap<String, i64, FnvBuildHasher>,
+    pub unsigned_data: HashMap<String, u64, FnvBuildHasher>,
 }
 
-impl<T: Send + Eq + Hash + Send + Display + Clone> Snapshot<T> {
-    /// Creates an empty `Snapshot`.
-    pub fn new() -> Snapshot<T> {
-        Snapshot {
-            marker: PhantomData,
-            signed_data: FnvHashMap::default(),
-            unsigned_data: FnvHashMap::default(),
-        }
-    }
-
-    /// Stores a counter value for the given metric key.
-    pub fn set_count(&mut self, key: T, value: i64) {
-        let fkey = format!("{}_count", key);
-        self.signed_data.insert(fkey, value);
-    }
-
-    /// Stores a gauge value for the given metric key.
-    pub fn set_value(&mut self, key: T, value: u64) {
-        let fkey = format!("{}_value", key);
-        self.unsigned_data.insert(fkey, value);
-    }
-
-    /// Sets timing percentiles for the given metric key.
-    ///
-    /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
-    pub fn set_timing_percentiles(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile]) {
-        for percentile in percentiles {
-            let fkey = format!("{}_ns_{}", key, percentile.0);
-            let value = h.value_at_percentile(percentile.1);
-            self.unsigned_data.insert(fkey, value);
-        }
-    }
-
-    /// Sets value percentiles for the given metric key.
-    ///
-    /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
-    pub fn set_value_percentiles(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile]) {
-        for percentile in percentiles {
-            let fkey = format!("{}_value_{}", key, percentile.0);
-            let value = h.value_at_percentile(percentile.1);
-            self.unsigned_data.insert(fkey, value);
-        }
-    }
-
+impl Snapshot {
     /// Gets the counter value for the given metric key.
     ///
     /// Returns `None` if the metric key has no counter value in this snapshot.
-    pub fn count(&self, key: &T) -> Option<&i64> {
+    pub fn count(&self, key: &str) -> Option<&i64> {
         let fkey = format!("{}_count", key);
         self.signed_data.get(&fkey)
     }
@@ -173,7 +179,7 @@ impl<T: Send + Eq + Hash + Send + Display + Clone> Snapshot<T> {
     /// Gets the gauge value for the given metric key.
     ///
     /// Returns `None` if the metric key has no gauge value in this snapshot.
-    pub fn value(&self, key: &T) -> Option<&u64> {
+    pub fn value(&self, key: &str) -> Option<&u64> {
         let fkey = format!("{}_value", key);
         self.unsigned_data.get(&fkey)
     }
@@ -181,7 +187,7 @@ impl<T: Send + Eq + Hash + Send + Display + Clone> Snapshot<T> {
     /// Gets the given timing percentile for given metric key.
     ///
     /// Returns `None` if the metric key has no value at the given percentile in this snapshot.
-    pub fn timing_percentile(&self, key: &T, percentile: Percentile) -> Option<&u64> {
+    pub fn timing_percentile(&self, key: &str, percentile: Percentile) -> Option<&u64> {
         let fkey = format!("{}_ns_{}", key, percentile.0);
         self.unsigned_data.get(&fkey)
     }
@@ -189,21 +195,107 @@ impl<T: Send + Eq + Hash + Send + Display + Clone> Snapshot<T> {
     /// Gets the given value percentile for the given metric key.
     ///
     /// Returns `None` if the metric key has no value at the given percentile in this snapshot.
-    pub fn value_percentile(&self, key: &T, percentile: Percentile) -> Option<&u64> {
+    pub fn value_percentile(&self, key: &str, percentile: Percentile) -> Option<&u64> {
         let fkey = format!("{}_value_{}", key, percentile.0);
         self.unsigned_data.get(&fkey)
     }
 }
 
+/// Builder for creating a snapshot.
+pub(crate) struct SnapshotBuilder<T> {
+    inner: Snapshot,
+    _marker: PhantomData<T>,
+}
+
+#[allow(dead_code)]
+impl<T: Send + Eq + Hash + Send + Display + Clone> SnapshotBuilder<T> {
+    /// Creates an empty `SnapshotBuilder`.
+    pub(crate) fn new() -> SnapshotBuilder<T> {
+        SnapshotBuilder {
+            inner: Default::default(),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Stores a counter value for the given metric key.
+    pub(crate) fn set_count(&mut self, key: T, value: i64) {
+        let fkey = format!("{}_count", key);
+        self.inner.signed_data.insert(fkey, value);
+    }
+
+    /// Stores a gauge value for the given metric key.
+    pub(crate) fn set_value(&mut self, key: T, value: u64) {
+        let fkey = format!("{}_value", key);
+        self.inner.unsigned_data.insert(fkey, value);
+    }
+
+    /// Sets timing percentiles for the given metric key.
+    ///
+    /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
+    pub(crate) fn set_timing_percentiles(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile]) {
+        for percentile in percentiles {
+            let fkey = format!("{}_ns_{}", key, percentile.0);
+            let value = h.value_at_percentile(percentile.1);
+            self.inner.unsigned_data.insert(fkey, value);
+        }
+    }
+
+    /// Sets value percentiles for the given metric key.
+    ///
+    /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
+    pub(crate) fn set_value_percentiles(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile]) {
+        for percentile in percentiles {
+            let fkey = format!("{}_value_{}", key, percentile.0);
+            let value = h.value_at_percentile(percentile.1);
+            self.inner.unsigned_data.insert(fkey, value);
+        }
+    }
+
+    /// Gets the counter value for the given metric key.
+    ///
+    /// Returns `None` if the metric key has no counter value in this snapshot.
+    pub(crate) fn count(&self, key: &T) -> Option<&i64> {
+        let fkey = format!("{}_count", key);
+        self.inner.signed_data.get(&fkey)
+    }
+
+    /// Gets the gauge value for the given metric key.
+    ///
+    /// Returns `None` if the metric key has no gauge value in this snapshot.
+    pub(crate) fn value(&self, key: &T) -> Option<&u64> {
+        let fkey = format!("{}_value", key);
+        self.inner.unsigned_data.get(&fkey)
+    }
+
+    /// Gets the given timing percentile for given metric key.
+    ///
+    /// Returns `None` if the metric key has no value at the given percentile in this snapshot.
+    pub(crate) fn timing_percentile(&self, key: &T, percentile: Percentile) -> Option<&u64> {
+        let fkey = format!("{}_ns_{}", key, percentile.0);
+        self.inner.unsigned_data.get(&fkey)
+    }
+
+    /// Gets the given value percentile for the given metric key.
+    ///
+    /// Returns `None` if the metric key has no value at the given percentile in this snapshot.
+    pub(crate) fn value_percentile(&self, key: &T, percentile: Percentile) -> Option<&u64> {
+        let fkey = format!("{}_value_{}", key, percentile.0);
+        self.inner.unsigned_data.get(&fkey)
+    }
+
+    /// Converts this `SnapshotBuilder` into a `Snapshot`.
+    pub(crate) fn into_inner(self) -> Snapshot { self.inner }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Snapshot, Percentile};
+    use super::{Percentile, SnapshotBuilder};
     use hdrhistogram::Histogram;
 
     #[test]
     fn test_snapshot_simple_set_and_get() {
         let key = "ok".to_owned();
-        let mut snapshot = Snapshot::new();
+        let mut snapshot = SnapshotBuilder::new();
         snapshot.set_count(key.clone(), 1);
         snapshot.set_value(key.clone(), 42);
 
@@ -213,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_percentiles() {
-        let mut snapshot = Snapshot::new();
+        let mut snapshot = SnapshotBuilder::new();
 
         {
             let mut h1 = Histogram::<u64>::new_with_bounds(1, u64::max_value(), 3).unwrap();
@@ -271,7 +363,6 @@ mod tests {
             assert!(p99_vpercentile.is_some());
             assert!(max_vpercentile.is_some());
             assert!(fake_vpercentile.is_none());
-
         }
     }
 }

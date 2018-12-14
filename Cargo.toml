@@ -2,6 +2,7 @@
 name = "hotmic"
 version = "0.2.1"
 authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
+edition = "2018"
 
 license = "MIT"
 
@@ -21,11 +22,12 @@ opt-level = 3
 lto = true
 
 [dependencies]
-mio = "^0.6"
-lazycell = "1"
-crossbeam-channel = "^0.2"
-hdrhistogram = "^6.0"
+crossbeam-channel = "^0.3"
+hdrhistogram = "^6.1"
 fnv = "^1.0"
+hashbrown = "^0.1"
+
+[dev-dependencies]
 log = "^0.4"
 env_logger = "^0.5"
 getopts = "^0.2"

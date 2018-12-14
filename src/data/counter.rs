@@ -1,25 +1,22 @@
-use std::hash::Hash;
-use fnv::FnvHashMap;
 use super::Sample;
+use fnv::FnvBuildHasher;
+use hashbrown::HashMap;
+use std::hash::Hash;
 
 pub struct Counter<T> {
-    pub data: FnvHashMap<T, i64>,
+    pub data: HashMap<T, i64, FnvBuildHasher>,
 }
 
-impl<T> Counter<T>
-    where T: Eq + Hash
-{
+impl<T: Eq + Hash> Counter<T> {
     pub fn new() -> Counter<T> {
-        Counter { data: FnvHashMap::default() }
+        Counter {
+            data: HashMap::<T, i64, FnvBuildHasher>::default(),
+        }
     }
 
-    pub fn register(&mut self, key: T) {
-        let _ = self.data.entry(key).or_insert(0);
-    }
+    pub fn register(&mut self, key: T) { let _ = self.data.entry(key).or_insert(0); }
 
-    pub fn deregister(&mut self, key: T) {
-        let _ = self.data.remove(&key);
-    }
+    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
 
     pub fn update(&mut self, sample: &Sample<T>) {
         match sample {
@@ -42,16 +39,14 @@ impl<T> Counter<T>
         }
     }
 
-    pub fn value(&self, key: T) -> i64 {
-        *self.data.get(&key).unwrap_or(&0)
-    }
+    pub fn value(&self, key: T) -> i64 { *self.data.get(&key).unwrap_or(&0) }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
     use super::Counter;
-    use data::Sample;
+    use crate::data::Sample;
+    use std::time::Instant;
 
     #[test]
     fn test_counter_unregistered_update() {

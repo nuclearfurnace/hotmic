@@ -1,43 +1,46 @@
-use std::hash::Hash;
-use fnv::FnvHashMap;
-use hdrhistogram::Histogram as HdrHistogram;
-use std::time::{Instant, Duration};
 use super::Sample;
-use helper::duration_as_nanos;
+use crate::helper::duration_as_nanos;
+use fnv::FnvBuildHasher;
+use hashbrown::HashMap;
+use hdrhistogram::Histogram as HdrHistogram;
+use std::{
+    hash::Hash,
+    time::{Duration, Instant},
+};
 
 pub struct Histogram<T> {
     window: Duration,
     granularity: Duration,
-    data: FnvHashMap<T, WindowedHistogram>,
+    data: HashMap<T, WindowedHistogram, FnvBuildHasher>,
 }
 
-impl<T> Histogram<T>
-    where T: Eq + Hash
-{
+impl<T: Eq + Hash> Histogram<T> {
     pub fn new(window: Duration, granularity: Duration) -> Histogram<T> {
         Histogram {
-            window: window,
-            granularity: granularity,
-            data: FnvHashMap::default(),
+            window,
+            granularity,
+            data: HashMap::<T, WindowedHistogram, FnvBuildHasher>::default(),
         }
     }
 
     pub fn register(&mut self, key: T) {
-        let _ = self.data.entry(key).or_insert(WindowedHistogram::new(
-            self.window.clone(), self.granularity.clone()
-        ));
+        let window = self.window;
+        let granularity = self.granularity;
+
+        let _ = self
+            .data
+            .entry(key)
+            .or_insert_with(|| WindowedHistogram::new(window, granularity));
     }
 
-    pub fn deregister(&mut self, key: T) {
-        let _ = self.data.remove(&key);
-    }
+    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
 
     pub fn update(&mut self, sample: &Sample<T>) {
         match sample {
             Sample::Timing(key, start, end, _) => {
                 if let Some(entry) = self.data.get_mut(&key) {
                     let delta = *end - *start;
-                    let delta = (delta.as_secs() * 1_000_000_000) + delta.subsec_nanos() as u64;
+                    let delta = duration_as_nanos(delta);
                     entry.update(delta);
                 }
             },
@@ -83,11 +86,11 @@ impl WindowedHistogram {
         }
 
         WindowedHistogram {
-            buckets: buckets,
-            num_buckets: num_buckets,
+            buckets,
+            num_buckets,
             bucket_index: 0,
             last_upkeep: Instant::now(),
-            granularity: granularity,
+            granularity,
         }
     }
 
@@ -100,9 +103,7 @@ impl WindowedHistogram {
         }
     }
 
-    pub fn update(&mut self, value: u64) {
-        self.buckets[self.bucket_index].saturating_record(value);
-    }
+    pub fn update(&mut self, value: u64) { self.buckets[self.bucket_index].saturating_record(value); }
 
     pub fn merged(&self) -> HdrHistogram<u64> {
         let mut base = HdrHistogram::new_from(&self.buckets[self.bucket_index]);
@@ -116,9 +117,9 @@ impl WindowedHistogram {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Instant, Duration};
     use super::{Histogram, WindowedHistogram};
-    use data::Sample;
+    use crate::data::Sample;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_histogram_unregistered_update() {

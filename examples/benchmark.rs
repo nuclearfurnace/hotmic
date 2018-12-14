@@ -4,12 +4,12 @@ extern crate env_logger;
 extern crate getopts;
 extern crate hotmic;
 
-use std::fmt;
-use std::thread;
-use std::env;
-use std::time::{Instant, Duration};
 use getopts::Options;
-use hotmic::{Facet, Sample, Receiver, Sink, Percentile};
+use hotmic::{Facet, Percentile, Receiver, Sample, Sink};
+use std::{
+    env, fmt, thread,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Metric {
@@ -35,7 +35,7 @@ struct Generator {
 impl Generator {
     fn new(stats: Sink<Metric>) -> Generator {
         Generator {
-            stats: stats,
+            stats,
             t0: None,
             gauge: 0,
         }
@@ -65,7 +65,6 @@ pub fn opts() -> Options {
     opts.optopt("d", "duration", "number of seconds to run the benchmark", "INTEGER");
     opts.optopt("p", "producers", "number of producers", "INTEGER");
     opts.optopt("c", "capacity", "maximum number of unprocessed batches", "INTEGER");
-    opts.optopt("b", "batch", "number of samples per source batch", "INTEGER");
     opts.optflag("h", "help", "print this help menu");
 
     opts
@@ -83,7 +82,7 @@ fn main() {
         Err(f) => {
             error!("Failed to parse command line args: {}", f);
             return;
-        }
+        },
     };
 
     if matches.opt_present("help") {
@@ -94,47 +93,54 @@ fn main() {
     info!("hotmic benchmark");
 
     // Build our sink and configure the facets.
-    let seconds = matches.opt_str("duration").unwrap_or_else(|| "60".to_owned())
+    let seconds = matches
+        .opt_str("duration")
+        .unwrap_or_else(|| "60".to_owned())
         .parse()
         .unwrap();
-    let capacity = matches.opt_str("capacity").unwrap_or_else(|| "256".to_owned())
+    let capacity = matches
+        .opt_str("capacity")
+        .unwrap_or_else(|| "4096".to_owned())
         .parse()
         .unwrap();
-    let batch = matches.opt_str("batch").unwrap_or_else(|| "128".to_owned())
-        .parse()
-        .unwrap();
-    let producers = matches.opt_str("producers").unwrap_or_else(|| "1".to_owned())
+    let producers = matches
+        .opt_str("producers")
+        .unwrap_or_else(|| "1".to_owned())
         .parse()
         .unwrap();
 
     info!("producers: {}", producers);
     info!("capacity: {}", capacity);
-    info!("batch size: {}", batch);
 
-    let mut receiver = Receiver::builder()
-        .capacity(capacity)
-        .batch_size(batch)
-        .build();
+    let mut receiver = Receiver::builder().capacity(capacity).build();
 
-    receiver.add_facet(Facet::Count(Metric::Ok));
-    receiver.add_facet(Facet::TimingPercentile(Metric::Ok));
-    receiver.add_facet(Facet::Count(Metric::Total));
-    receiver.add_facet(Facet::Gauge(Metric::Total));
+    let mut sink = receiver.get_sink();
+    sink.add_facet(Facet::Count(Metric::Ok));
+    sink.add_facet(Facet::TimingPercentile(Metric::Ok));
+    sink.add_facet(Facet::Count(Metric::Total));
+    sink.add_facet(Facet::Gauge(Metric::Total));
 
     info!("sink configured");
 
     // Spin up our sample producers.
     for _ in 0..producers {
-        let s = receiver.get_sink();
-        thread::spawn(move || { Generator::new(s).run(); });
+        let s = sink.clone();
+        thread::spawn(move || {
+            Generator::new(s).run();
+        });
     }
 
     // Spin up the sink and let 'er rip.
     let controller = receiver.get_controller();
 
-    thread::spawn(move || { receiver.run(); });
+    thread::spawn(move || {
+        receiver.run();
+    });
 
     // Poll the controller to figure out the sample rate.
+    let ok_key = "ok".to_owned();
+    let total_key = "total".to_owned();
+
     let mut total = 0;
     let mut t0 = Instant::now();
     for _ in 0..seconds {
@@ -142,11 +148,11 @@ fn main() {
         let mut turn_total = 0;
 
         let snapshot = controller.get_snapshot().unwrap();
-        if let Some(t) = snapshot.count(&Metric::Ok) {
+        if let Some(t) = snapshot.count(&ok_key) {
             turn_total += *t;
         }
 
-        if let Some(t) = snapshot.count(&Metric::Total) {
+        if let Some(t) = snapshot.count(&total_key) {
             turn_total += *t;
         }
 
@@ -154,18 +160,24 @@ fn main() {
         total = turn_total;
         let rate = turn_delta as f64 / (duration_as_nanos(t1 - t0) / 1_000_000_000.0);
 
+        let ok_key = "ok".to_owned();
         info!("rate: {} samples per second", rate);
         info!(
             "latency (ns): p50: {} p90: {} p99: {} p999: {} max: {}",
-            snapshot.timing_percentile(&Metric::Ok, Percentile("p50".to_owned(), 0.5))
+            snapshot
+                .timing_percentile(&ok_key, Percentile("p50".to_owned(), 0.5))
                 .unwrap_or(&0),
-            snapshot.timing_percentile(&Metric::Ok, Percentile("p90".to_owned(), 0.9))
+            snapshot
+                .timing_percentile(&ok_key, Percentile("p90".to_owned(), 0.9))
                 .unwrap_or(&0),
-            snapshot.timing_percentile(&Metric::Ok, Percentile("p99".to_owned(), 0.99))
+            snapshot
+                .timing_percentile(&ok_key, Percentile("p99".to_owned(), 0.99))
                 .unwrap_or(&0),
-            snapshot.timing_percentile(&Metric::Ok, Percentile("p999".to_owned(), 0.999))
+            snapshot
+                .timing_percentile(&ok_key, Percentile("p999".to_owned(), 0.999))
                 .unwrap_or(&0),
-            snapshot.timing_percentile(&Metric::Ok, Percentile("max".to_owned(), 1.0))
+            snapshot
+                .timing_percentile(&ok_key, Percentile("max".to_owned(), 1.0))
                 .unwrap_or(&0)
         );
 
@@ -176,6 +188,4 @@ fn main() {
     info!("total metrics pushed: {}", total);
 }
 
-fn duration_as_nanos(d: Duration) -> f64 {
-    (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64
-}
+fn duration_as_nanos(d: Duration) -> f64 { (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64 }

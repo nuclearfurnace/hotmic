@@ -1,47 +1,39 @@
-use std::hash::Hash;
-use fnv::FnvHashMap;
 use super::Sample;
+use fnv::FnvBuildHasher;
+use hashbrown::HashMap;
+use std::hash::Hash;
 
 pub struct Gauge<T> {
-    data: FnvHashMap<T, u64>,
+    data: HashMap<T, u64, FnvBuildHasher>,
 }
 
-impl<T> Gauge<T>
-    where T: Eq + Hash
-{
+impl<T: Eq + Hash> Gauge<T> {
     pub fn new() -> Gauge<T> {
-        Gauge { data: FnvHashMap::default() }
-    }
-
-    pub fn register(&mut self, key: T) {
-        let _ = self.data.entry(key).or_insert(0);
-    }
-
-    pub fn deregister(&mut self, key: T) {
-        let _ = self.data.remove(&key);
-    }
-
-    pub fn update(&mut self, sample: &Sample<T>) {
-        match sample {
-            Sample::Value(key, value) => {
-                if let Some(entry) = self.data.get_mut(&key) {
-                    *entry = *value;
-                }
-            },
-            _ => {},
+        Gauge {
+            data: HashMap::<T, u64, FnvBuildHasher>::default(),
         }
     }
 
-    pub fn value(&self, key: T) -> u64 {
-        *self.data.get(&key).unwrap_or(&0)
+    pub fn register(&mut self, key: T) { let _ = self.data.entry(key).or_insert(0); }
+
+    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
+
+    pub fn update(&mut self, sample: &Sample<T>) {
+        if let Sample::Value(key, value) = sample {
+            if let Some(entry) = self.data.get_mut(&key) {
+                *entry = *value;
+            }
+        }
     }
+
+    pub fn value(&self, key: T) -> u64 { *self.data.get(&key).unwrap_or(&0) }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
     use super::Gauge;
-    use data::Sample;
+    use crate::data::Sample;
+    use std::time::Instant;
 
     #[test]
     fn test_gauge_unregistered_update() {
