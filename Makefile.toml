@@ -1,0 +1,14 @@
+[env]
+RUST_TEST_THREADS = "1"
+CARGO_MAKE_RUN_CODECOV = "true"
+RUSTFLAGS = "-D warnings"
+
+[tasks.format-stable]
+command = "cargo"
+args = ["fmt"]
+
+[tasks.pre-verify-project]
+dependencies = ["check-format", "clippy", "coverage-flow"]
+
+[tasks.pre-coverage]
+dependencies = ["test"]
