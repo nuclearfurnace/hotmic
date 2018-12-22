@@ -1,13 +1,9 @@
 language: rust
 rust:
+  - 1.31.0
   - stable
   - beta
   - nightly
-
-matrix:
-  allow_failures:
-    - rust: nightly
-  fast_finish: true
 
 before_script:
   - which cargo-make || cargo install cargo-make
@@ -16,12 +12,26 @@ script:
   - cargo make ci-flow
   - cargo make format-flow
 
-deploy:
-  provider: cargo
-  token:
-    secure: lIJl8NJltno6xFfqEljnoPbhAVzYnaXRRIUimv3GeqF4iYp0KlL5eXMeaIm2aoljh/vMETBKfSamyrxaENqt5an6gK14861clnmFRm/KfIeu5v732iEoWKi7d1Zg2hNSAJ3nKV8wx9awzcIu94L8nkvpwbU6QxQoUdgzww57Cde/RyIETFGRRzk/ngAKZsSHZonCM0fGSo53fVnHiIAfe8FdKqzeOC8D6PXnlz/NSmdfJKYfOV19NkwQt9VuwTVq50MB9X/i5YQJsEKB4rf9kQ2X8qg0Y8FBq61C8ifKLNu+cqYXCyM3XNyYBb5x3dvcrJJ1BAWmlvA9IWQZwJJSlzYXeuq2ISEFlnPDWZAqtf+wxTca7dEjIWElfBCuQrYruLHxUFP6mQyMCo33Hq1BlK567jF5NCdAohPwm/SAqyYk68dj9MOGsD+m0/sBq0mKPDr/EYWrIiFr8CT+bc2HJ89miAoKYavpFy5ld/D/BG1tAV3ZbAtaXnHaZo2cp3HmliHWM0lXBl5/UmXLw+s7jwOoaEAYraI4Hnp8cJHgQ5sLZk0+w1W9T4JDVREZf2ca+7ilf1VMHe3MVvj+QBSIMXNSVVfbDt7imWcTLxX07/S/gC/xZIyfnREU7HvTroa3zNPPJ6kW/krGiYiw8wR8/76feqXQdGldQrA9+vfNq7M=
-  on:
-    tags: true
+stages:
+  - check
+  - test
+  - name: deploy
+    if: tag IS present
+
+jobs:
+  fast_finish: true
+  allow_failures:
+    - rust: nightly
+  include:
+    - &check
+      stage: check
+      rust: stable
+      script: cargo check --all-targets
+    - <<: *check
+      rust: 1.31.0
+    - stage: deploy
+      rust: stable
+      script: cargo make publish-flow
 
 notifications:
   email:
