@@ -1,6 +1,6 @@
 # hotmic
 
-[![conduct-badge][]][conduct] [![travis-badge][]][travis] [![downloads-badge][] ![release-badge][]][crate] [![docs-badge][]][docs] [![libraries-io-badge][]][libraries-io] [![license-badge][]](#license)
+[![conduct-badge][]][conduct] [![travis-badge][]][travis] [![downloads-badge][] ![release-badge][]][crate] [![docs-badge][]][docs] [![libraries-io-badge][]][libraries-io] [![cargo-make-badge][]][cargo-make] [![license-badge][]](#license)
 
 [conduct-badge]: https://img.shields.io/badge/%E2%9D%A4-code%20of%20conduct-blue.svg
 [travis-badge]: https://img.shields.io/travis/nuclearfurnace/hotmic/master.svg
@@ -9,8 +9,9 @@
 [license-badge]: https://img.shields.io/crates/l/hotmic.svg
 [docs-badge]: https://docs.rs/hotmic/badge.svg
 [cargo-make-badge]: https://img.shields.io/badge/built%20with-cargo--make-yellow.svg
-[libraries-io-badge]: https://img.shields.io/librariesio/github/sagiegurari/cargo-make.svg
-[libraries-io]: https://libraries.io/cargo/cargo-make
+[cargo-make]: https://sagiegurari.github.io/cargo-make/
+[libraries-io-badge]: https://img.shields.io/librariesio/github/nuclearfurnace/hotmic.svg
+[libraries-io]: https://libraries.io/cargo/hotmic
 [conduct]: https://github.com/nuclearfurnace/hotmic/blob/master/CODE_OF_CONDUCT.md
 [travis]: https://travis-ci.org/nuclearfurnace/hotmic
 [crate]: https://crates.io/crates/hotmic
