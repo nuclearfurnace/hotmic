@@ -33,6 +33,9 @@ jobs:
       rust: stable
       script: cargo make publish-flow
 
+cache:
+  cargo: true
+
 notifications:
   email:
     on_success: never
