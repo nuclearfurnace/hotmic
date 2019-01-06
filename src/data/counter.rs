@@ -46,7 +46,6 @@ impl<T: Eq + Hash> Counter<T> {
 mod tests {
     use super::Counter;
     use crate::data::Sample;
-    use std::time::Instant;
 
     #[test]
     fn test_counter_unregistered_update() {
@@ -92,7 +91,7 @@ mod tests {
         let tkey = "tkey".to_owned();
         counter.register(tkey.clone());
 
-        let tsample = Sample::Timing(tkey.clone(), Instant::now(), Instant::now(), 73);
+        let tsample = Sample::Timing(tkey.clone(), 0, 1, 73);
         counter.update(&tsample);
 
         let tvalue = counter.value(tkey);

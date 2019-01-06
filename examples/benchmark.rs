@@ -28,7 +28,7 @@ impl fmt::Display for Metric {
 
 struct Generator {
     stats: Sink<Metric>,
-    t0: Option<Instant>,
+    t0: Option<u64>,
     gauge: u64,
 }
 
@@ -44,7 +44,8 @@ impl Generator {
     fn run(&mut self) {
         loop {
             self.gauge += 1;
-            let t1 = Instant::now();
+            let t1 = self.stats.clock().raw();
+
             if let Some(t0) = self.t0 {
                 let _ = self.stats.send(Sample::Timing(Metric::Ok, t0, t1, 1));
                 let _ = self.stats.send(Sample::Value(Metric::Total, self.gauge));
@@ -64,7 +65,7 @@ pub fn opts() -> Options {
 
     opts.optopt("d", "duration", "number of seconds to run the benchmark", "INTEGER");
     opts.optopt("p", "producers", "number of producers", "INTEGER");
-    opts.optopt("c", "capacity", "maximum number of unprocessed batches", "INTEGER");
+    opts.optopt("c", "capacity", "maximum number of unprocessed items", "INTEGER");
     opts.optflag("h", "help", "print this help menu");
 
     opts
@@ -112,9 +113,12 @@ fn main() {
     info!("producers: {}", producers);
     info!("capacity: {}", capacity);
 
-    let mut receiver = Receiver::builder().capacity(capacity).build();
+    let mut receiver = Receiver::builder()
+        .capacity(capacity)
+        .build();
 
-    let mut sink = receiver.get_sink();
+    let sink = receiver.get_sink();
+    let mut sink = sink.scoped("alpha.pools.primary");
     sink.add_facet(Facet::Count(Metric::Ok));
     sink.add_facet(Facet::TimingPercentile(Metric::Ok));
     sink.add_facet(Facet::Count(Metric::Total));
@@ -138,8 +142,8 @@ fn main() {
     });
 
     // Poll the controller to figure out the sample rate.
-    let ok_key = "ok".to_owned();
-    let total_key = "total".to_owned();
+    let ok_key = "alpha.pools.primary.ok".to_owned();
+    let total_key = "alpha.pool.primary.total".to_owned();
 
     let mut total = 0;
     let mut t0 = Instant::now();
@@ -160,7 +164,6 @@ fn main() {
         total = turn_total;
         let rate = turn_delta as f64 / (duration_as_nanos(t1 - t0) / 1_000_000_000.0);
 
-        let ok_key = "ok".to_owned();
         info!("rate: {} samples per second", rate);
         info!(
             "latency (ns): p50: {} p90: {} p99: {} p999: {} max: {}",

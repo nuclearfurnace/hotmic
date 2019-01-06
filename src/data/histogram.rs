@@ -40,7 +40,6 @@ impl<T: Eq + Hash> Histogram<T> {
             Sample::Timing(key, start, end, _) => {
                 if let Some(entry) = self.data.get_mut(&key) {
                     let delta = *end - *start;
-                    let delta = duration_as_nanos(delta);
                     entry.update(delta);
                 }
             },
@@ -126,9 +125,7 @@ mod tests {
         let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
 
         let key = "foo".to_owned();
-        let t0 = Instant::now();
-        let t1 = t0 + Duration::from_millis(100);
-        let sample = Sample::Timing(key.clone(), t0, t1, 1);
+        let sample = Sample::Timing(key.clone(), 0, 100, 1);
         histogram.update(&sample);
 
         let value = histogram.snapshot(key);
@@ -142,9 +139,7 @@ mod tests {
         let key = "foo".to_owned();
         histogram.register(key.clone());
 
-        let t0 = Instant::now();
-        let t1 = t0 + Duration::from_nanos(1245);
-        let sample = Sample::Timing(key.clone(), t0, t1, 1);
+        let sample = Sample::Timing(key.clone(), 0, 1245, 1);
         histogram.update(&sample);
 
         let value = histogram.snapshot(key);
@@ -176,9 +171,7 @@ mod tests {
         let tkey = "tkey".to_owned();
         histogram.register(tkey.clone());
 
-        let t0 = Instant::now();
-        let t1 = t0 + Duration::from_nanos(1692);
-        let tsample = Sample::Timing(tkey.clone(), t0, t1, 73);
+        let tsample = Sample::Timing(tkey.clone(), 0, 1692, 73);
         histogram.update(&tsample);
 
         let tvalue = histogram.snapshot(tkey);

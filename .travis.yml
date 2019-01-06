@@ -1,4 +1,8 @@
 language: rust
+env:
+  global:
+    - CARGO_FEATURES="--no-default-features"
+
 rust:
   - 1.31.0
   - stable
@@ -7,14 +11,17 @@ rust:
 
 before_script:
   - which cargo-make || cargo install cargo-make
+  - echo CARGO_FEATURES="${CARGO_FEATURES}" > /tmp/ci.env
+  - cat /tmp/ci.env
 
 script:
-  - cargo make ci-flow
-  - cargo make format-flow
+  - cargo make --env-file=/tmp/ci.env ci-flow
 
 stages:
   - check
   - test
+  - test_features
+  - format
   - name: deploy
     if: tag IS present
 
@@ -26,9 +33,16 @@ jobs:
     - &check
       stage: check
       rust: stable
-      script: cargo check --all-targets
+      script: cargo check
     - <<: *check
       rust: 1.31.0
+    - stage: test_features
+      rust: nightly
+      env: CARGO_FEATURES="--all-features"
+      script: cargo make --env-file=/tmp/ci.env ci-flow
+    - stage: format
+      rust: nightly
+      script: cargo make format-flow
     - stage: deploy
       rust: stable
       script: cargo make publish-flow
