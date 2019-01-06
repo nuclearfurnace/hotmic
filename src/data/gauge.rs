@@ -33,7 +33,6 @@ impl<T: Eq + Hash> Gauge<T> {
 mod tests {
     use super::Gauge;
     use crate::data::Sample;
-    use std::time::Instant;
 
     #[test]
     fn test_gauge_unregistered_update() {
@@ -79,7 +78,7 @@ mod tests {
         let tkey = "tkey".to_owned();
         gauge.register(tkey.clone());
 
-        let tsample = Sample::Timing(tkey.clone(), Instant::now(), Instant::now(), 73);
+        let tsample = Sample::Timing(tkey.clone(), 0, 1, 73);
         gauge.update(&tsample);
 
         let tvalue = gauge.value(tkey);

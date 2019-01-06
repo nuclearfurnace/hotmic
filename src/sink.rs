@@ -1,7 +1,8 @@
-use super::{
+use crate::{
     control::ControlMessage,
     data::{Facet, Sample, ScopedKey},
     helper::io_error,
+    clock::Clock
 };
 use crossbeam_channel::Sender;
 use std::{fmt::Display, hash::Hash, io};
@@ -13,16 +14,19 @@ use std::{fmt::Display, hash::Hash, io};
 pub struct Sink<T: Clone + Eq + Hash + Display> {
     data_tx: Sender<Sample<ScopedKey<T>>>,
     control_tx: Sender<ControlMessage<ScopedKey<T>>>,
+    clock: Clock,
     scope: String,
 }
 
 impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub(crate) fn new(
         data_tx: Sender<Sample<ScopedKey<T>>>, control_tx: Sender<ControlMessage<ScopedKey<T>>>,
+        clock: Clock,
     ) -> Sink<T> {
         Sink {
             data_tx,
             control_tx,
+            clock,
             scope: "".to_owned(),
         }
     }
@@ -58,8 +62,14 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
         Sink {
             data_tx: self.data_tx.clone(),
             control_tx: self.control_tx.clone(),
+            clock: self.clock.clone(),
             scope: new_scope,
         }
+    }
+
+    /// Reference to the internal high-speed clock interface.
+    pub fn clock(&self) -> &Clock {
+        &self.clock
     }
 
     /// Sends a metric sample to the receiver.
@@ -87,6 +97,7 @@ impl<T: Clone + Eq + Hash + Display> Clone for Sink<T> {
         Sink {
             data_tx: self.data_tx.clone(),
             control_tx: self.control_tx.clone(),
+            clock: self.clock.clone(),
             scope: self.scope.clone(),
         }
     }

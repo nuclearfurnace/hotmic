@@ -16,6 +16,10 @@ readme = "README.md"
 
 keywords = ["metrics", "telemetry", "histogram", "counter", "gauge"]
 
+[features]
+asm = ["tsc"]
+tsc = []
+
 [profile.release]
 debug = true
 opt-level = 3
@@ -26,8 +30,16 @@ crossbeam-channel = "^0.3"
 hdrhistogram = "^6.1"
 fnv = "^1.0"
 hashbrown = "^0.1"
+libc = "^0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "^0.3", features = ["profileapi", "sysinfoapi"] }
 
 [dev-dependencies]
 log = "^0.4"
 env_logger = "^0.6"
 getopts = "^0.2"
+
+[dev-dependencies.clocksource]
+version = "^0.4"
+features = []

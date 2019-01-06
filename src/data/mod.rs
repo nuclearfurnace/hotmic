@@ -1,4 +1,3 @@
-use super::helper::duration_as_nanos;
 use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use hdrhistogram::Histogram as HdrHistogram;
@@ -6,7 +5,6 @@ use std::{
     fmt::{self, Display},
     hash::Hash,
     marker::PhantomData,
-    time::Instant,
 };
 
 pub mod counter;
@@ -73,7 +71,7 @@ pub enum Sample<T> {
     ///
     /// The count field can represent amounts integral to the event,
     /// such as the number of bytes processed in the given time delta.
-    Timing(T, Instant, Instant, u64),
+    Timing(T, u64, u64, u64),
 
     /// A counter delta.
     ///
@@ -130,7 +128,7 @@ impl<T: Clone + Hash + Eq + Display> Display for Sample<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Sample::Timing(key, start, end, count) => {
-                let delta = duration_as_nanos(*end - *start);
+                let delta = *end - *start;
                 write!(f, "Sample::Timing({}, {}ns, {})", key, delta, count)
             },
             Sample::Count(key, value) => write!(f, "Sample::Count({}, {})", key, value),

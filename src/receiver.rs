@@ -1,10 +1,11 @@
-use super::{
+use crate::{
     configuration::Configuration,
     control::{ControlMessage, Controller},
     data::{
         default_percentiles, Counter, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot, SnapshotBuilder,
     },
     sink::Sink,
+    clock::Clock,
 };
 use crossbeam_channel::{self, bounded, tick, TryRecvError};
 use std::{
@@ -28,13 +29,15 @@ pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
     gauge: Gauge<ScopedKey<T>>,
     histogram: Histogram<ScopedKey<T>>,
     percentiles: Vec<Percentile>,
+
+    clock: Clock,
 }
 
 impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub(crate) fn from_config(conf: Configuration<T>) -> Receiver<T> {
         // Create our data, control, and buffer channels.
         let (data_tx, data_rx) = bounded(conf.capacity);
-        let (control_tx, control_rx) = bounded(1024);
+        let (control_tx, control_rx) = bounded(16);
 
         Receiver {
             data_tx,
@@ -46,6 +49,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
             gauge: Gauge::new(),
             histogram: Histogram::new(Duration::from_secs(10), Duration::from_secs(1)),
             percentiles: default_percentiles(),
+            clock: Clock::new(),
         }
     }
 
@@ -53,7 +57,9 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub fn builder() -> Configuration<T> { Configuration::default() }
 
     /// Creates a `Sink` bound to this receiver.
-    pub fn get_sink(&self) -> Sink<T> { Sink::new(self.data_tx.clone(), self.control_tx.clone()) }
+    pub fn get_sink(&self) -> Sink<T> {
+        Sink::new(self.data_tx.clone(), self.control_tx.clone(), self.clock.clone())
+    }
 
     /// Creates a `Controller` bound to this receiver.
     pub fn get_controller(&self) -> Controller<T> { Controller::new(self.control_tx.clone()) }
@@ -94,6 +100,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     /// Run the receiver.
     pub fn run(&mut self) {
         let upkeep_rx = tick(Duration::from_millis(100));
+
         loop {
             if upkeep_rx.try_recv().is_ok() {
                 let now = Instant::now();

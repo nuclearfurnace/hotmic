@@ -1,9 +1,12 @@
+#![cfg_attr(feature = "tsc", feature(asm))]
+
 mod configuration;
 mod control;
 mod data;
 mod helper;
 mod receiver;
 mod sink;
+pub mod clock;
 
 pub use self::{
     configuration::Configuration,
