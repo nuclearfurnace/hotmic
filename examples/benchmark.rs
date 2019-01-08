@@ -113,12 +113,10 @@ fn main() {
     info!("producers: {}", producers);
     info!("capacity: {}", capacity);
 
-    let mut receiver = Receiver::builder()
-        .capacity(capacity)
-        .build();
+    let mut receiver = Receiver::builder().capacity(capacity).build();
 
     let sink = receiver.get_sink();
-    let mut sink = sink.scoped("alpha.pools.primary");
+    let mut sink = sink.scoped("alpha.pools.primary").expect("failed to create sink");
     sink.add_facet(Facet::Count(Metric::Ok));
     sink.add_facet(Facet::TimingPercentile(Metric::Ok));
     sink.add_facet(Facet::Count(Metric::Total));

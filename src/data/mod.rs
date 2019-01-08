@@ -89,11 +89,30 @@ pub enum Sample<T> {
     Value(T, u64),
 }
 
-/// A scoped metric key.
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(String, T);
+/// Wrapper for all messages that flow over the data channel between sink/receiver.
+pub(crate) enum DataFrame<T> {
+    /// A normal metric sample.
+    Sample(Sample<T>),
 
-impl<T: Clone + Hash + Eq + Display> Display for ScopedKey<T> {
+    /// Registers a new scope from a sink.
+    Scope(usize, String),
+}
+
+/// An integer scoped metric key.
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(usize, T);
+
+impl<T: Clone + Eq + Hash + Display> ScopedKey<T> {
+    pub(crate) fn id(&self) -> usize { self.0 }
+
+    pub(crate) fn into_string_scoped(self, scope: String) -> StringScopedKey<T> { StringScopedKey(scope, self.1) }
+}
+
+/// A string scoped metric key.
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub(crate) struct StringScopedKey<T: Clone + Eq + Hash + Display>(String, T);
+
+impl<T: Clone + Hash + Eq + Display> Display for StringScopedKey<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.0.is_empty() {
             write!(f, "{}", self.1)
@@ -104,35 +123,22 @@ impl<T: Clone + Hash + Eq + Display> Display for ScopedKey<T> {
 }
 
 impl<T: Clone + Eq + Hash + Display> Facet<T> {
-    pub(crate) fn into_scoped(self, scope: String) -> Facet<ScopedKey<T>> {
+    pub(crate) fn into_scoped(self, scope_id: usize) -> Facet<ScopedKey<T>> {
         match self {
-            Facet::Count(key) => Facet::Count(ScopedKey(scope, key)),
-            Facet::Gauge(key) => Facet::Gauge(ScopedKey(scope, key)),
-            Facet::TimingPercentile(key) => Facet::TimingPercentile(ScopedKey(scope, key)),
-            Facet::ValuePercentile(key) => Facet::ValuePercentile(ScopedKey(scope, key)),
+            Facet::Count(key) => Facet::Count(ScopedKey(scope_id, key)),
+            Facet::Gauge(key) => Facet::Gauge(ScopedKey(scope_id, key)),
+            Facet::TimingPercentile(key) => Facet::TimingPercentile(ScopedKey(scope_id, key)),
+            Facet::ValuePercentile(key) => Facet::ValuePercentile(ScopedKey(scope_id, key)),
         }
     }
 }
 
 impl<T: Clone + Eq + Hash + Display> Sample<T> {
-    pub(crate) fn into_scoped(self, scope: String) -> Sample<ScopedKey<T>> {
+    pub(crate) fn into_scoped(self, scope_id: usize) -> Sample<ScopedKey<T>> {
         match self {
-            Sample::Timing(key, start, end, count) => Sample::Timing(ScopedKey(scope, key), start, end, count),
-            Sample::Count(key, value) => Sample::Count(ScopedKey(scope, key), value),
-            Sample::Value(key, value) => Sample::Value(ScopedKey(scope, key), value),
-        }
-    }
-}
-
-impl<T: Clone + Hash + Eq + Display> Display for Sample<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Sample::Timing(key, start, end, count) => {
-                let delta = *end - *start;
-                write!(f, "Sample::Timing({}, {}ns, {})", key, delta, count)
-            },
-            Sample::Count(key, value) => write!(f, "Sample::Count({}, {})", key, value),
-            Sample::Value(key, value) => write!(f, "Sample::Value({}, {})", key, value),
+            Sample::Timing(key, start, end, count) => Sample::Timing(ScopedKey(scope_id, key), start, end, count),
+            Sample::Count(key, value) => Sample::Count(ScopedKey(scope_id, key), value),
+            Sample::Value(key, value) => Sample::Value(ScopedKey(scope_id, key), value),
         }
     }
 }

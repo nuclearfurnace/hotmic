@@ -3,7 +3,7 @@ use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use std::hash::Hash;
 
-pub struct Counter<T> {
+pub(crate) struct Counter<T> {
     pub data: HashMap<T, i64, FnvBuildHasher>,
 }
 
@@ -16,7 +16,7 @@ impl<T: Eq + Hash> Counter<T> {
 
     pub fn register(&mut self, key: T) { let _ = self.data.entry(key).or_insert(0); }
 
-    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
+    pub fn deregister(&mut self, key: &T) { let _ = self.data.remove(key); }
 
     pub fn update(&mut self, sample: &Sample<T>) {
         match sample {
@@ -39,7 +39,7 @@ impl<T: Eq + Hash> Counter<T> {
         }
     }
 
-    pub fn value(&self, key: T) -> i64 { *self.data.get(&key).unwrap_or(&0) }
+    pub fn value(&self, key: &T) -> i64 { *self.data.get(key).unwrap_or(&0) }
 }
 
 #[cfg(test)]
@@ -55,7 +55,7 @@ mod tests {
         let sample = Sample::Count(key.clone(), 42);
         counter.update(&sample);
 
-        let value = counter.value(key);
+        let value = counter.value(&key);
         assert_eq!(value, 0);
     }
 
@@ -69,7 +69,7 @@ mod tests {
         let sample = Sample::Count(key.clone(), 42);
         counter.update(&sample);
 
-        let value = counter.value(key);
+        let value = counter.value(&key);
         assert_eq!(value, 42);
     }
 
@@ -84,7 +84,7 @@ mod tests {
         let csample = Sample::Count(ckey.clone(), 42);
         counter.update(&csample);
 
-        let cvalue = counter.value(ckey);
+        let cvalue = counter.value(&ckey);
         assert_eq!(cvalue, 42);
 
         // Timing samples.
@@ -94,7 +94,7 @@ mod tests {
         let tsample = Sample::Timing(tkey.clone(), 0, 1, 73);
         counter.update(&tsample);
 
-        let tvalue = counter.value(tkey);
+        let tvalue = counter.value(&tkey);
         assert_eq!(tvalue, 73);
 
         // Value samples.
@@ -104,7 +104,7 @@ mod tests {
         let vsample = Sample::Value(vkey.clone(), 22);
         counter.update(&vsample);
 
-        let vvalue = counter.value(vkey);
+        let vvalue = counter.value(&vkey);
         assert_eq!(vvalue, 1);
     }
 }

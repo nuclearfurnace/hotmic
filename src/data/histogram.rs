@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub struct Histogram<T> {
+pub(crate) struct Histogram<T> {
     window: Duration,
     granularity: Duration,
     data: HashMap<T, WindowedHistogram, FnvBuildHasher>,
@@ -33,7 +33,7 @@ impl<T: Eq + Hash> Histogram<T> {
             .or_insert_with(|| WindowedHistogram::new(window, granularity));
     }
 
-    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
+    pub fn deregister(&mut self, key: &T) { let _ = self.data.remove(key); }
 
     pub fn update(&mut self, sample: &Sample<T>) {
         match sample {
@@ -58,15 +58,15 @@ impl<T: Eq + Hash> Histogram<T> {
         }
     }
 
-    pub fn snapshot(&self, key: T) -> Option<HdrHistogram<u64>> {
-        match self.data.get(&key) {
+    pub fn snapshot(&self, key: &T) -> Option<HdrHistogram<u64>> {
+        match self.data.get(key) {
             Some(wh) => Some(wh.merged()),
             _ => None,
         }
     }
 }
 
-pub struct WindowedHistogram {
+pub(crate) struct WindowedHistogram {
     buckets: Vec<HdrHistogram<u64>>,
     num_buckets: usize,
     bucket_index: usize,
@@ -128,7 +128,7 @@ mod tests {
         let sample = Sample::Timing(key.clone(), 0, 100, 1);
         histogram.update(&sample);
 
-        let value = histogram.snapshot(key);
+        let value = histogram.snapshot(&key);
         assert!(value.is_none());
     }
 
@@ -142,7 +142,7 @@ mod tests {
         let sample = Sample::Timing(key.clone(), 0, 1245, 1);
         histogram.update(&sample);
 
-        let value = histogram.snapshot(key);
+        let value = histogram.snapshot(&key);
         assert!(value.is_some());
 
         let hdr = value.unwrap();
@@ -161,7 +161,7 @@ mod tests {
         let csample = Sample::Count(ckey.clone(), 42);
         histogram.update(&csample);
 
-        let cvalue = histogram.snapshot(ckey);
+        let cvalue = histogram.snapshot(&ckey);
         assert!(cvalue.is_some());
 
         let chdr = cvalue.unwrap();
@@ -174,7 +174,7 @@ mod tests {
         let tsample = Sample::Timing(tkey.clone(), 0, 1692, 73);
         histogram.update(&tsample);
 
-        let tvalue = histogram.snapshot(tkey);
+        let tvalue = histogram.snapshot(&tkey);
         assert!(tvalue.is_some());
 
         let thdr = tvalue.unwrap();
@@ -188,7 +188,7 @@ mod tests {
         let vsample = Sample::Value(vkey.clone(), 22);
         histogram.update(&vsample);
 
-        let vvalue = histogram.snapshot(vkey);
+        let vvalue = histogram.snapshot(&vkey);
         assert!(vvalue.is_some());
 
         let vhdr = vvalue.unwrap();

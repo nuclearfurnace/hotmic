@@ -15,35 +15,31 @@ type Source = Counter;
 type Source = Monotonic;
 
 pub trait ClockSource {
+    fn clock_type(&self) -> ClockType;
     fn now(&self) -> u64;
     fn start(&self) -> u64;
     fn end(&self) -> u64;
 }
 
 impl<T: ClockSource> ClockSource for Arc<T> {
-    fn now(&self) -> u64 {
-        (**self).now()
-    }
+    fn clock_type(&self) -> ClockType { (**self).clock_type() }
 
-    fn start(&self) -> u64 {
-        (**self).start()
-    }
+    fn now(&self) -> u64 { (**self).now() }
 
-    fn end(&self) -> u64 {
-        (**self).end()
-    }
+    fn start(&self) -> u64 { (**self).start() }
+
+    fn end(&self) -> u64 { (**self).end() }
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum CalibrationMode {
-    Identical,
-    Calibrated,
-    Uncalibrated,
+pub enum ClockType {
+    Monotonic,
+    Counter,
 }
 
 #[derive(Clone)]
 pub struct Calibration {
-    mode: CalibrationMode,
+    calibrated: bool,
     ref_time: f64,
     src_time: f64,
     ref_hz: f64,
@@ -54,7 +50,7 @@ pub struct Calibration {
 impl Calibration {
     pub fn new() -> Calibration {
         Calibration {
-            mode: CalibrationMode::Uncalibrated,
+            calibrated: false,
             ref_time: 0.0,
             src_time: 0.0,
             ref_hz: 1_000_000_000.0,
@@ -63,26 +59,18 @@ impl Calibration {
         }
     }
 
-    pub fn identical() -> Calibration {
-        Calibration {
-            mode: CalibrationMode::Identical,
-            ref_time: 0.0,
-            src_time: 0.0,
-            ref_hz: 1.0,
-            src_hz: 1.0,
-            hz_ratio: 1.0,
-        }
-    }
-
-    pub fn mode(&self) -> CalibrationMode {
-        self.mode
-    }
+    pub fn calibrated(&self) -> bool { self.calibrated }
 
     pub fn calibrate<R, S>(&mut self, reference: &R, source: &S)
     where
         R: ClockSource,
         S: ClockSource,
     {
+        if reference.clock_type() == source.clock_type() {
+            self.calibrated = true;
+            return;
+        }
+
         self.ref_time = reference.now() as f64;
         self.src_time = source.start() as f64;
 
@@ -102,10 +90,15 @@ impl Calibration {
 
         self.src_hz = (src_d * self.ref_hz) / ref_d;
         self.hz_ratio = self.ref_hz / self.src_hz;
+        self.calibrated = true;
     }
 }
 
-#[derive(Clone)]
+impl Default for Calibration {
+    fn default() -> Self { Self::new() }
+}
+
+#[derive(Clone, Default)]
 pub struct Clock {
     reference: Reference,
     source: Source,
@@ -113,18 +106,10 @@ pub struct Clock {
 }
 
 impl Clock {
-    #[cfg(not(feature = "tsc"))]
-    pub fn new() -> Clock {
-        Clock::from_parts(Reference::new(), Source::new(), Calibration::identical())
-    }
-
-    #[cfg(feature = "tsc")]
-    pub fn new() -> Clock {
-        Clock::from_parts(Reference::new(), Source::new(), Calibration::new())
-    }
+    pub fn new() -> Clock { Clock::from_parts(Reference::new(), Source::new(), Calibration::new()) }
 
     pub fn from_parts(r: Reference, s: Source, mut calibration: Calibration) -> Clock {
-        if calibration.mode() == CalibrationMode::Uncalibrated {
+        if !calibration.calibrated() {
             calibration.calibrate(&r, &s);
         }
 
@@ -135,32 +120,20 @@ impl Clock {
         }
     }
 
-    pub fn recalibrate(&mut self) {
-        self.cal.calibrate(&self.reference, &self.source);
-    }
-
     pub fn now(&self) -> u64 {
         let value = self.source.now();
-        if self.cal.mode == CalibrationMode::Identical {
-            return value
+        if self.reference.clock_type() == self.source.clock_type() {
+            return value;
         }
 
         (((value as f64 - self.cal.src_time) * self.cal.hz_ratio) + self.cal.ref_time) as u64
     }
 
-    pub fn raw(&self) -> u64 {
-        self.source.now()
-    }
+    pub fn raw(&self) -> u64 { self.source.now() }
 
-    pub fn start(&self) -> u64 {
-        self.source.start()
-    }
+    pub fn start(&self) -> u64 { self.source.start() }
 
-    pub fn end(&self) -> u64 {
-        self.source.end()
-    }
+    pub fn end(&self) -> u64 { self.source.end() }
 
-    pub fn delta(&self, start: u64, end: u64) -> u64 {
-        (end.wrapping_sub(start) as f64 * self.cal.hz_ratio) as u64
-    }
+    pub fn delta(&self, start: u64, end: u64) -> u64 { (end.wrapping_sub(start) as f64 * self.cal.hz_ratio) as u64 }
 }

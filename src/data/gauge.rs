@@ -3,7 +3,7 @@ use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use std::hash::Hash;
 
-pub struct Gauge<T> {
+pub(crate) struct Gauge<T> {
     data: HashMap<T, u64, FnvBuildHasher>,
 }
 
@@ -16,7 +16,7 @@ impl<T: Eq + Hash> Gauge<T> {
 
     pub fn register(&mut self, key: T) { let _ = self.data.entry(key).or_insert(0); }
 
-    pub fn deregister(&mut self, key: T) { let _ = self.data.remove(&key); }
+    pub fn deregister(&mut self, key: &T) { let _ = self.data.remove(key); }
 
     pub fn update(&mut self, sample: &Sample<T>) {
         if let Sample::Value(key, value) = sample {
@@ -26,7 +26,7 @@ impl<T: Eq + Hash> Gauge<T> {
         }
     }
 
-    pub fn value(&self, key: T) -> u64 { *self.data.get(&key).unwrap_or(&0) }
+    pub fn value(&self, key: &T) -> u64 { *self.data.get(key).unwrap_or(&0) }
 }
 
 #[cfg(test)]
@@ -42,7 +42,7 @@ mod tests {
         let sample = Sample::Value(key.clone(), 42);
         gauge.update(&sample);
 
-        let value = gauge.value(key);
+        let value = gauge.value(&key);
         assert_eq!(value, 0);
     }
 
@@ -56,7 +56,7 @@ mod tests {
         let sample = Sample::Value(key.clone(), 42);
         gauge.update(&sample);
 
-        let value = gauge.value(key);
+        let value = gauge.value(&key);
         assert_eq!(value, 42);
     }
 
@@ -71,7 +71,7 @@ mod tests {
         let csample = Sample::Count(ckey.clone(), 42);
         gauge.update(&csample);
 
-        let cvalue = gauge.value(ckey);
+        let cvalue = gauge.value(&ckey);
         assert_eq!(cvalue, 0);
 
         // Timing samples.
@@ -81,7 +81,7 @@ mod tests {
         let tsample = Sample::Timing(tkey.clone(), 0, 1, 73);
         gauge.update(&tsample);
 
-        let tvalue = gauge.value(tkey);
+        let tvalue = gauge.value(&tkey);
         assert_eq!(tvalue, 0);
 
         // Value samples.
@@ -91,7 +91,7 @@ mod tests {
         let vsample = Sample::Value(vkey.clone(), 22);
         gauge.update(&vsample);
 
-        let vvalue = gauge.value(vkey);
+        let vvalue = gauge.value(&vkey);
         assert_eq!(vvalue, 22);
     }
 }
