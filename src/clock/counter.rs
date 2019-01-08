@@ -1,17 +1,16 @@
-use crate::clock::ClockSource;
+use crate::clock::{ClockSource, ClockType};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Counter;
 
 impl Counter {
-    pub fn new() -> Self {
-        Counter {
-        }
-    }
+    pub fn new() -> Self { Counter {} }
 }
 
 #[cfg(feature = "tsc")]
 impl ClockSource for Counter {
+    fn clock_type(&self) -> ClockType { ClockType::Counter }
+
     fn now(&self) -> u64 {
         let mut l: u32;
         let mut h: u32;
@@ -42,6 +41,8 @@ impl ClockSource for Counter {
 
 #[cfg(not(feature = "tsc"))]
 impl ClockSource for Counter {
+    fn clock_type(&self) -> ClockType { ClockType::Counter }
+
     fn now(&self) -> u64 {
         panic!("can't use counter without TSC support");
     }

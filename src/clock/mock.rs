@@ -1,5 +1,5 @@
+use crate::clock::{ClockSource, ClockType};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::clock::ClockSource;
 
 pub struct Mock {
     offset: AtomicUsize,
@@ -7,24 +7,20 @@ pub struct Mock {
 
 impl Mock {
     pub fn new(offset: usize) -> Self {
-        Self { offset: AtomicUsize::new(offset) }
+        Self {
+            offset: AtomicUsize::new(offset),
+        }
     }
 
-    pub fn increment(&self, amount: usize) {
-        self.offset.fetch_add(amount, Ordering::Release);
-    }
+    pub fn increment(&self, amount: usize) { self.offset.fetch_add(amount, Ordering::Release); }
 }
 
 impl ClockSource for Mock {
-    fn now(&self) -> u64 {
-        self.offset.load(Ordering::Acquire) as u64
-    }
+    fn clock_type(&self) -> ClockType { ClockType::Monotonic }
 
-    fn start(&self) -> u64 {
-        self.offset.load(Ordering::Acquire) as u64
-    }
+    fn now(&self) -> u64 { self.offset.load(Ordering::Acquire) as u64 }
 
-    fn end(&self) -> u64 {
-        self.offset.load(Ordering::Acquire) as u64
-    }
+    fn start(&self) -> u64 { self.offset.load(Ordering::Acquire) as u64 }
+
+    fn end(&self) -> u64 { self.offset.load(Ordering::Acquire) as u64 }
 }

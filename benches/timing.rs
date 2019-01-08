@@ -1,11 +1,11 @@
 #![cfg_attr(test, feature(test))]
 mod bench {
-    extern crate test;
     extern crate clocksource;
+    extern crate test;
     use self::test::Bencher;
-    use std::time::Instant;
     use clocksource::Clocksource;
     use hotmic::clock::Clock;
+    use std::time::Instant;
 
     #[bench]
     fn time_instant_now(b: &mut Bencher) {
