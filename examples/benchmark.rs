@@ -141,7 +141,7 @@ fn main() {
 
     // Poll the controller to figure out the sample rate.
     let ok_key = "alpha.pools.primary.ok".to_owned();
-    let total_key = "alpha.pool.primary.total".to_owned();
+    let total_key = "alpha.pools.primary.total".to_owned();
 
     let mut total = 0;
     let mut t0 = Instant::now();
