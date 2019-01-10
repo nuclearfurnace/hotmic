@@ -4,6 +4,7 @@ use crate::clock::{ClockSource, ClockType};
 pub struct Counter;
 
 impl Counter {
+    #[allow(dead_code)]
     pub fn new() -> Self { Counter {} }
 }
 
@@ -17,7 +18,7 @@ impl ClockSource for Counter {
         unsafe {
             asm!("lfence; rdtsc" : "={eax}" (l), "={edx}" (h) ::: "volatile");
         }
-        ((h as u64) << 32) | l as u64
+        ((u64::from(h)) << 32) | u64::from(l)
     }
 
     fn start(&self) -> u64 {
@@ -26,7 +27,7 @@ impl ClockSource for Counter {
         unsafe {
             asm!("lfence; rdtsc; lfence" : "={eax}" (l), "={edx}" (h) ::: "volatile");
         }
-        ((h as u64) << 32) | l as u64
+        ((u64::from(h)) << 32) | u64::from(l)
     }
 
     fn end(&self) -> u64 {
@@ -35,7 +36,7 @@ impl ClockSource for Counter {
         unsafe {
             asm!("rdtscp; lfence" : "={eax}" (l), "={edx}" (h) ::: "volatile");
         }
-        ((h as u64) << 32) | l as u64
+        ((u64::from(h)) << 32) | u64::from(l)
     }
 }
 
