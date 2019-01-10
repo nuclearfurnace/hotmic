@@ -128,7 +128,7 @@ mod bench {
     }
 
     #[bench]
-    fn time_hotmic_source(b: &mut Bencher) {
+    fn time_hotmic_raw(b: &mut Bencher) {
         let cs: Clock = Clock::new();
         b.iter(|| {
             for _ in 0..1000 {
@@ -138,7 +138,7 @@ mod bench {
     }
 
     #[bench]
-    fn time_hotmic_source_delta(b: &mut Bencher) {
+    fn time_hotmic_raw_delta(b: &mut Bencher) {
         let cs: Clock = Clock::new();
         b.iter(|| {
             for _ in 0..1000 {
