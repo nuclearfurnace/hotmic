@@ -4,7 +4,7 @@ mod bench {
     extern crate test;
     use self::test::Bencher;
     use clocksource::Clocksource;
-    use hotmic::clock::Clock;
+    use hotmic::Clock;
     use std::time::Instant;
 
     #[bench]
