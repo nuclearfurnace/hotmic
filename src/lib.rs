@@ -9,10 +9,10 @@ mod receiver;
 mod sink;
 
 pub use self::{
+    clock::Clock,
     configuration::Configuration,
     control::Controller,
     data::{Facet, Percentile, Sample, Snapshot},
     receiver::Receiver,
     sink::{Sink, SinkError},
-    clock::Clock,
 };

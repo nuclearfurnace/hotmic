@@ -3,8 +3,8 @@ use crate::{
     configuration::Configuration,
     control::{ControlMessage, Controller},
     data::{
-        default_percentiles, Counter, DataFrame, Facet, Gauge, Histogram, Percentile, ScopedKey, Snapshot,
-        Sample, SnapshotBuilder, StringScopedKey,
+        default_percentiles, Counter, DataFrame, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot,
+        SnapshotBuilder, StringScopedKey,
     },
     sink::Sink,
 };

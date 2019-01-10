@@ -179,9 +179,7 @@ impl Clock {
     /// Only use this method if you need a high-speed method of getting the current time.
     ///
     /// [`raw`]: Clock::raw
-    pub fn now(&self) -> u64 {
-        self.scaled(self.source.now())
-    }
+    pub fn now(&self) -> u64 { self.scaled(self.source.now()) }
 
     /// Gets the underlying time from the source clock.
     ///
@@ -234,7 +232,5 @@ impl Clock {
     ///
     /// This method is the fastest way to get the delta between two raw measurements, or a
     /// start/end measurement pair, where it is also scaled to reference time.
-    pub fn delta(&self, start: u64, end: u64) -> u64 {
-        (end.wrapping_sub(start) as f64 * self.cal.hz_ratio) as u64
-    }
+    pub fn delta(&self, start: u64, end: u64) -> u64 { (end.wrapping_sub(start) as f64 * self.cal.hz_ratio) as u64 }
 }

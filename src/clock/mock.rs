@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::clock::{ClockSource, ClockType};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
