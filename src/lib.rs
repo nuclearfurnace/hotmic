@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "tsc", feature(asm))]
 
-pub mod clock;
+mod clock;
 mod configuration;
 mod control;
 mod data;
@@ -14,4 +14,5 @@ pub use self::{
     data::{Facet, Percentile, Sample, Snapshot},
     receiver::Receiver,
     sink::{Sink, SinkError},
+    clock::Clock,
 };
