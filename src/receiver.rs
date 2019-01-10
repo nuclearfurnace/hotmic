@@ -4,7 +4,7 @@ use crate::{
     control::{ControlMessage, Controller},
     data::{
         default_percentiles, Counter, DataFrame, Facet, Gauge, Histogram, Percentile, ScopedKey, Snapshot,
-        SnapshotBuilder, StringScopedKey,
+        Sample, SnapshotBuilder, StringScopedKey,
     },
     sink::Sink,
 };
@@ -174,6 +174,15 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     fn process_data_msg(&mut self, msg: DataFrame<ScopedKey<T>>) {
         match msg {
             DataFrame::Sample(sample) => {
+                let sample = match sample {
+                    Sample::Timing(key, start, end, _) => {
+                        let delta = self.clock.delta(start, end);
+
+                        Sample::Value(key, delta)
+                    },
+                    x => x,
+                };
+
                 self.counter.update(&sample);
                 self.gauge.update(&sample);
                 self.histogram.update(&sample);
