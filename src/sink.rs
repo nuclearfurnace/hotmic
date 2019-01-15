@@ -1,11 +1,11 @@
 use crate::{
-    clock::Clock,
     control::ControlMessage,
     data::{DataFrame, Facet, Sample, ScopedKey},
     helper::io_error,
     receiver::get_scope_id,
 };
 use crossbeam_channel::Sender;
+use quanta::Clock;
 use std::{fmt::Display, hash::Hash, io};
 
 /// Erorrs during sink creation.

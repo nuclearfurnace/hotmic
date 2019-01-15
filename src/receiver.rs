@@ -1,5 +1,4 @@
 use crate::{
-    clock::Clock,
     configuration::Configuration,
     control::{ControlMessage, Controller},
     data::{
@@ -9,6 +8,7 @@ use crate::{
     sink::Sink,
 };
 use crossbeam_channel::{self, bounded, tick, TryRecvError};
+use quanta::Clock;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
