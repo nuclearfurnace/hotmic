@@ -1,8 +1,8 @@
 use crate::{
     configuration::Configuration,
-    control::{ControlMessage, Controller},
+    control::{ControlFrame, Controller},
     data::{
-        default_percentiles, Counter, DataFrame, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot,
+        default_percentiles, Counter, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot,
         SnapshotBuilder, StringScopedKey,
     },
     sink::Sink,
@@ -29,13 +29,36 @@ pub(crate) fn get_scope_id() -> usize {
     }
 }
 
+/// Wrapper for all messages that flow over the data channel between sink/receiver.
+pub(crate) enum MessageFrame<T> {
+    /// A normal data message holding a metric sample.
+    Data(Sample<T>),
+
+    /// An upkeep message.
+    ///
+    /// This includes registering/deregistering facets, and registering scopes.
+    Upkeep(UpkeepMessage<T>),
+}
+
+/// Various upkeep actions performed by a sink.
+pub(crate) enum UpkeepMessage<T> {
+    /// Registers a new facet with the receiver.
+    AddFacet(Facet<T>),
+
+    /// Deregisters an existing facet from the receiver.
+    RemoveFacet(Facet<T>),
+
+    /// Registers a scope ID/scope identifier pair.
+    RegisterScope(usize, String),
+}
+
 /// Metrics receiver which aggregates and processes samples.
 pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
     // Sample aggregation machinery.
-    data_tx: crossbeam_channel::Sender<DataFrame<ScopedKey<T>>>,
-    data_rx: crossbeam_channel::Receiver<DataFrame<ScopedKey<T>>>,
-    control_tx: crossbeam_channel::Sender<ControlMessage<ScopedKey<T>>>,
-    control_rx: crossbeam_channel::Receiver<ControlMessage<ScopedKey<T>>>,
+    msg_tx: crossbeam_channel::Sender<MessageFrame<ScopedKey<T>>>,
+    msg_rx: crossbeam_channel::Receiver<MessageFrame<ScopedKey<T>>>,
+    control_tx: crossbeam_channel::Sender<ControlFrame>,
+    control_rx: crossbeam_channel::Receiver<ControlFrame>,
     facets: HashSet<Facet<ScopedKey<T>>>,
 
     // Metric machinery.
@@ -51,12 +74,12 @@ pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
 impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub(crate) fn from_config(conf: Configuration<T>) -> Receiver<T> {
         // Create our data, control, and buffer channels.
-        let (data_tx, data_rx) = bounded(conf.capacity);
+        let (msg_tx, msg_rx) = bounded(conf.capacity);
         let (control_tx, control_rx) = bounded(16);
 
         Receiver {
-            data_tx,
-            data_rx,
+            msg_tx,
+            msg_rx,
             control_tx,
             control_rx,
             facets: HashSet::new(),
@@ -73,18 +96,10 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub fn builder() -> Configuration<T> { Configuration::default() }
 
     /// Creates a `Sink` bound to this receiver.
-    pub fn get_sink(&self) -> Sink<T> {
-        Sink::new(
-            self.data_tx.clone(),
-            self.control_tx.clone(),
-            self.clock.clone(),
-            "".to_owned(),
-            0,
-        )
-    }
+    pub fn get_sink(&self) -> Sink<T> { Sink::new(self.msg_tx.clone(), self.clock.clone(), "".to_owned(), 0) }
 
     /// Creates a `Controller` bound to this receiver.
-    pub fn get_controller(&self) -> Controller<T> { Controller::new(self.control_tx.clone()) }
+    pub fn get_controller(&self) -> Controller { Controller::new(self.control_tx.clone()) }
 
     /// Run the receiver.
     pub fn run(&mut self) {
@@ -96,14 +111,14 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
                 self.histogram.upkeep(now);
             }
 
-            while let Ok(msg) = self.control_rx.try_recv() {
-                self.process_control_msg(msg);
+            while let Ok(cframe) = self.control_rx.try_recv() {
+                self.process_control_frame(cframe);
             }
 
-            match self.data_rx.try_recv() {
-                Ok(item) => self.process_data_msg(item),
+            match self.msg_rx.try_recv() {
+                Ok(mframe) => self.process_msg_frame(mframe),
                 Err(TryRecvError::Empty) => {},
-                Err(e) => eprintln!("error receiving data message: {}", e),
+                Err(e) => eprintln!("error receiving message frame: {}", e),
             }
         }
     }
@@ -158,22 +173,32 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
         snapshot.into_inner()
     }
 
-    /// Processes a control message.
-    fn process_control_msg(&mut self, msg: ControlMessage<ScopedKey<T>>) {
+    /// Processes a control frame.
+    fn process_control_frame(&mut self, msg: ControlFrame) {
         match msg {
-            ControlMessage::AddFacet(facet) => self.add_facet(facet),
-            ControlMessage::RemoveFacet(facet) => self.remove_facet(facet),
-            ControlMessage::Snapshot(tx) => {
+            ControlFrame::Snapshot(tx) => {
                 let snapshot = self.get_snapshot();
                 let _ = tx.send(snapshot);
             },
         }
     }
 
-    /// Processes a data message.
-    fn process_data_msg(&mut self, msg: DataFrame<ScopedKey<T>>) {
+    /// Processes an upkeep message.
+    fn process_upkeep_msg(&mut self, msg: UpkeepMessage<ScopedKey<T>>) {
         match msg {
-            DataFrame::Sample(sample) => {
+            UpkeepMessage::AddFacet(facet) => self.add_facet(facet),
+            UpkeepMessage::RemoveFacet(facet) => self.remove_facet(facet),
+            UpkeepMessage::RegisterScope(id, scope) => {
+                let _ = self.scopes.entry(id).or_insert_with(|| scope);
+            },
+        }
+    }
+
+    /// Processes a message frame.
+    fn process_msg_frame(&mut self, msg: MessageFrame<ScopedKey<T>>) {
+        match msg {
+            MessageFrame::Upkeep(umsg) => self.process_upkeep_msg(umsg),
+            MessageFrame::Data(sample) => {
                 let sample = match sample {
                     Sample::Timing(key, start, end, _) => {
                         let delta = self.clock.delta(start, end);
@@ -186,9 +211,6 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
                 self.counter.update(&sample);
                 self.gauge.update(&sample);
                 self.histogram.update(&sample);
-            },
-            DataFrame::Scope(id, scope) => {
-                let _ = self.scopes.entry(id).or_insert_with(|| scope);
             },
         }
     }
