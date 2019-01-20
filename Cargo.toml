@@ -27,6 +27,7 @@ hdrhistogram = "^6.1"
 fnv = "^1.0"
 hashbrown = "^0.1"
 quanta = "^0.1"
+serde = "^1.0"
 
 [dev-dependencies]
 log = "^0.4"

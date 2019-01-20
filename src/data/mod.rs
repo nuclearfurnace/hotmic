@@ -1,6 +1,7 @@
 use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use hdrhistogram::Histogram as HdrHistogram;
+use serde::ser::{Serialize, Serializer, SerializeMap};
 use std::{
     fmt::{self, Display},
     hash::Hash,
@@ -203,6 +204,23 @@ impl Snapshot {
     /// Gets a collection of the metrics with unsigned values.
     pub fn get_unsigned_data(&self) -> Vec<(String, u64)> {
         self.unsigned_data.iter().map(|(a, b)| (a.clone(), *b)).collect()
+    }
+}
+
+impl Serialize for Snapshot {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let field_count = self.signed_data.len() + self.unsigned_data.len();
+        let mut map = serializer.serialize_map(Some(field_count))?;
+        for (k, v) in &self.signed_data {
+            map.serialize_entry(k, v)?;
+        }
+        for (k, v) in &self.unsigned_data {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
     }
 }
 
