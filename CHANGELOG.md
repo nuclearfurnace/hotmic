@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2019-01-19
+### Changed
+- Snapshot now implements [`Serialize`](https://docs.rs/serde/1.0.85/serde/trait.Serialize.html).
+
 ## [0.5.1] - 2019-01-19
 ### Changed
 - Controller is now clonable.
