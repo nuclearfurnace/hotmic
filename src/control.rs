@@ -14,6 +14,7 @@ pub(crate) enum ControlFrame {
 ///
 /// The caller is able to request metric snapshots at any time without requiring mutable access to
 /// the sink.  This all flows through the existing control mechanism, and so is very fast.
+#[derive(Clone)]
 pub struct Controller {
     control_tx: Sender<ControlFrame>,
 }

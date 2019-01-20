@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2019-01-19
+### Changed
+- Controller is now clonable.
+
 ## [0.5.0] - 2019-01-19
 ### Added
 - Revamp API to provide easier usage. (by [@tobz](https://github.com/tobz), [#14](https://github.com/nuclearfurnace/hotmic/pull/14))
