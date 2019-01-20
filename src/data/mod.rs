@@ -64,7 +64,7 @@ pub enum Facet<T> {
 /// There are multiple sample types to support the different types of measurements, which each have
 /// their own specific data they must carry.
 #[derive(Debug)]
-pub enum Sample<T> {
+pub(crate) enum Sample<T> {
     /// A timed sample.
     ///
     /// Includes the start and end times, as well as a count field.
@@ -87,15 +87,6 @@ pub enum Sample<T> {
     /// Values themselves cannot be incremented or decremented, so you
     /// must hold them externally before sending them.
     Value(T, u64),
-}
-
-/// Wrapper for all messages that flow over the data channel between sink/receiver.
-pub(crate) enum DataFrame<T> {
-    /// A normal metric sample.
-    Sample(Sample<T>),
-
-    /// Registers a new scope from a sink.
-    Scope(usize, String),
 }
 
 /// An integer scoped metric key.
@@ -167,8 +158,8 @@ pub fn default_percentiles() -> Vec<Percentile> {
 /// A point-in-time view of metric data.
 #[derive(Default)]
 pub struct Snapshot {
-    pub signed_data: HashMap<String, i64, FnvBuildHasher>,
-    pub unsigned_data: HashMap<String, u64, FnvBuildHasher>,
+    signed_data: HashMap<String, i64, FnvBuildHasher>,
+    unsigned_data: HashMap<String, u64, FnvBuildHasher>,
 }
 
 impl Snapshot {
@@ -202,6 +193,16 @@ impl Snapshot {
     pub fn value_percentile(&self, key: &str, percentile: Percentile) -> Option<&u64> {
         let fkey = format!("{}_value_{}", key, percentile.0);
         self.unsigned_data.get(&fkey)
+    }
+
+    /// Gets a collection of the metrics with signed values.
+    pub fn get_signed_data(&self) -> Vec<(String, i64)> {
+        self.signed_data.iter().map(|(a, b)| (a.clone(), *b)).collect()
+    }
+
+    /// Gets a collection of the metrics with unsigned values.
+    pub fn get_unsigned_data(&self) -> Vec<(String, u64)> {
+        self.unsigned_data.iter().map(|(a, b)| (a.clone(), *b)).collect()
     }
 }
 

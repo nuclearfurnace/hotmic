@@ -1,7 +1,7 @@
 use super::receiver::Receiver;
 use std::{fmt::Display, hash::Hash, marker::PhantomData};
 
-/// A configuration builder for `Receiver`.
+/// A configuration builder for [`Receiver`].
 #[derive(Clone)]
 pub struct Configuration<T> {
     metric_type: PhantomData<T>,
@@ -18,7 +18,7 @@ impl<T> Default for Configuration<T> {
 }
 
 impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
-    /// Creates a new `Configuration` with default values.
+    /// Creates a new [`Configuration`] with default values.
     pub fn new() -> Configuration<T> { Default::default() }
 
     /// Sets the buffer capacity.
@@ -40,6 +40,6 @@ impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
         self
     }
 
-    /// Create a `Receiver` based on this configuration.
+    /// Create a [`Receiver`] based on this configuration.
     pub fn build(self) -> Receiver<T> { Receiver::from_config(self) }
 }

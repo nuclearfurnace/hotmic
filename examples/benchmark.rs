@@ -5,7 +5,7 @@ extern crate getopts;
 extern crate hotmic;
 
 use getopts::Options;
-use hotmic::{Facet, Percentile, Receiver, Sample, Sink};
+use hotmic::{Facet, Percentile, Receiver, Sink};
 use std::{
     env, fmt, thread,
     time::{Duration, Instant},
@@ -47,8 +47,8 @@ impl Generator {
             let t1 = self.stats.clock().raw();
 
             if let Some(t0) = self.t0 {
-                let _ = self.stats.send(Sample::Timing(Metric::Ok, t0, t1, 1));
-                let _ = self.stats.send(Sample::Value(Metric::Total, self.gauge));
+                let _ = self.stats.update_timing(Metric::Ok, t0, t1);
+                let _ = self.stats.update_value(Metric::Total, self.gauge);
             }
             self.t0 = Some(t1);
         }
@@ -116,7 +116,7 @@ fn main() {
     let mut receiver = Receiver::builder().capacity(capacity).build();
 
     let sink = receiver.get_sink();
-    let mut sink = sink.scoped("alpha.pools.primary").expect("failed to create sink");
+    let sink = sink.scoped("alpha.pools.primary").expect("failed to create sink");
     sink.add_facet(Facet::Count(Metric::Ok));
     sink.add_facet(Facet::TimingPercentile(Metric::Ok));
     sink.add_facet(Facet::Count(Metric::Total));
