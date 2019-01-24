@@ -1,4 +1,3 @@
-use super::Sample;
 use crate::helper::duration_as_nanos;
 use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
@@ -14,7 +13,7 @@ pub(crate) struct Histogram<T> {
     data: HashMap<T, WindowedHistogram, FnvBuildHasher>,
 }
 
-impl<T: Eq + Hash> Histogram<T> {
+impl<T: Clone + Eq + Hash> Histogram<T> {
     pub fn new(window: Duration, granularity: Duration) -> Histogram<T> {
         Histogram {
             window,
@@ -23,32 +22,13 @@ impl<T: Eq + Hash> Histogram<T> {
         }
     }
 
-    pub fn register(&mut self, key: T) {
-        let window = self.window;
-        let granularity = self.granularity;
-
-        let _ = self
-            .data
-            .entry(key)
-            .or_insert_with(|| WindowedHistogram::new(window, granularity));
-    }
-
-    pub fn deregister(&mut self, key: &T) { let _ = self.data.remove(key); }
-
-    pub fn update(&mut self, sample: &Sample<T>) {
-        match sample {
-            Sample::Timing(key, start, end, _) => {
-                if let Some(entry) = self.data.get_mut(&key) {
-                    let delta = *end - *start;
-                    entry.update(delta);
-                }
-            },
-            Sample::Value(key, value) => {
-                if let Some(entry) = self.data.get_mut(&key) {
-                    entry.update(*value);
-                }
-            },
-            _ => {},
+    pub fn update(&mut self, key: T, value: u64) {
+        if let Some(wh) = self.data.get_mut(&key) {
+            wh.update(value);
+        } else {
+            let mut wh = WindowedHistogram::new(self.window, self.granularity);
+            wh.update(value);
+            let _ = self.data.insert(key, wh);
         }
     }
 
@@ -58,11 +38,8 @@ impl<T: Eq + Hash> Histogram<T> {
         }
     }
 
-    pub fn snapshot(&self, key: &T) -> Option<HdrHistogram<u64>> {
-        match self.data.get(key) {
-            Some(wh) => Some(wh.merged()),
-            _ => None,
-        }
+    pub fn values(&self) -> Vec<(T, HdrHistogram<u64>)> {
+        self.data.iter().map(|(k, v)| (k.clone(), v.merged())).collect()
     }
 }
 
@@ -117,83 +94,21 @@ impl WindowedHistogram {
 #[cfg(test)]
 mod tests {
     use super::{Histogram, WindowedHistogram};
-    use crate::data::Sample;
     use std::time::{Duration, Instant};
-
-    #[test]
-    fn test_histogram_unregistered_update() {
-        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
-
-        let key = "foo".to_owned();
-        let sample = Sample::Timing(key.clone(), 0, 100, 1);
-        histogram.update(&sample);
-
-        let value = histogram.snapshot(&key);
-        assert!(value.is_none());
-    }
 
     #[test]
     fn test_histogram_simple_update() {
         let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
 
-        let key = "foo".to_owned();
-        histogram.register(key.clone());
+        let key = "foo";
+        histogram.update(key, 1245);
 
-        let sample = Sample::Timing(key.clone(), 0, 1245, 1);
-        histogram.update(&sample);
+        let values = histogram.values();
+        assert_eq!(values.len(), 1);
 
-        let value = histogram.snapshot(&key);
-        assert!(value.is_some());
-
-        let hdr = value.unwrap();
+        let hdr = &values[0].1;
         assert_eq!(hdr.len(), 1);
         assert_eq!(hdr.max(), 1245);
-    }
-
-    #[test]
-    fn test_histogram_sample_support() {
-        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
-
-        // Count samples.
-        let ckey = "ckey".to_owned();
-        histogram.register(ckey.clone());
-
-        let csample = Sample::Count(ckey.clone(), 42);
-        histogram.update(&csample);
-
-        let cvalue = histogram.snapshot(&ckey);
-        assert!(cvalue.is_some());
-
-        let chdr = cvalue.unwrap();
-        assert_eq!(chdr.len(), 0);
-
-        // Timing samples.
-        let tkey = "tkey".to_owned();
-        histogram.register(tkey.clone());
-
-        let tsample = Sample::Timing(tkey.clone(), 0, 1692, 73);
-        histogram.update(&tsample);
-
-        let tvalue = histogram.snapshot(&tkey);
-        assert!(tvalue.is_some());
-
-        let thdr = tvalue.unwrap();
-        assert_eq!(thdr.len(), 1);
-        assert_eq!(thdr.max(), 1692);
-
-        // Value samples.
-        let vkey = "vkey".to_owned();
-        histogram.register(vkey.clone());
-
-        let vsample = Sample::Value(vkey.clone(), 22);
-        histogram.update(&vsample);
-
-        let vvalue = histogram.snapshot(&vkey);
-        assert!(vvalue.is_some());
-
-        let vhdr = vvalue.unwrap();
-        assert_eq!(vhdr.len(), 1);
-        assert_eq!(vhdr.max(), 22);
     }
 
     #[test]

@@ -1,11 +1,11 @@
 use crate::{
-    data::{Facet, Sample, ScopedKey},
+    data::{Sample, ScopedKey},
     helper::io_error,
     receiver::{get_scope_id, MessageFrame, UpkeepMessage},
 };
 use crossbeam_channel::Sender;
 use quanta::Clock;
-use std::{fmt::Display, hash::Hash, io};
+use std::{fmt::Display, hash::Hash};
 
 /// Erorrs during sink creation.
 #[derive(Debug)]
@@ -91,44 +91,43 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub fn clock(&self) -> &Clock { &self.clock }
 
     /// Updates the count for a given metric.
-    pub fn update_count(&self, key: T, delta: i64) -> Result<(), io::Error> { self.send(Sample::Count(key, delta)) }
+    pub fn update_count(&self, key: T, delta: i64) { self.send(Sample::Count(key, delta)) }
 
     /// Updates the value for a given metric.
     ///
-    /// This can be used either for setting a gauge or updating a value percentile.
-    pub fn update_value(&self, key: T, value: u64) -> Result<(), io::Error> { self.send(Sample::Value(key, value)) }
+    /// This can be used either for setting a gauge or updating a value histogram.
+    pub fn update_gauge(&self, key: T, value: u64) { self.send(Sample::Gauge(key, value)) }
 
-    /// Updates the timing for a given metric.
-    pub fn update_timing(&self, key: T, start: u64, end: u64) -> Result<(), io::Error> {
-        self.send(Sample::Timing(key, start, end, 1))
+    /// Updates the timing histogram for a given metric.
+    pub fn update_timing(&self, key: T, start: u64, end: u64) {
+        self.send(Sample::TimingHistogram(key, start, end, 1))
     }
 
-    /// Updates the timing for a given metric, with a count.
-    pub fn update_timing_with_count(&self, key: T, start: u64, end: u64, count: u64) -> Result<(), io::Error> {
-        self.send(Sample::Timing(key, start, end, count))
+    /// Updates the timing histogram for a given metric, with a count.
+    pub fn update_timing_with_count(&self, key: T, start: u64, end: u64, count: u64) {
+        self.send(Sample::TimingHistogram(key, start, end, count))
+    }
+
+    /// Updates the value histogram for a given metric.
+    pub fn update_value(&self, key: T, value: u64) {
+        self.send(Sample::ValueHistogram(key, value))
+    }
+
+    /// Increments the given metric by one.
+    pub fn increment(&self, key: T) {
+        self.update_count(key, 1)
+    }
+
+    /// Decrements the given metric by one.
+    pub fn decrement(&self, key: T) {
+        self.update_count(key, -1)
     }
 
     /// Sends a raw metric sample to the receiver.
-    fn send(&self, sample: Sample<T>) -> Result<(), io::Error> {
-        self.msg_tx
+    fn send(&self, sample: Sample<T>) {
+        let _ = self.msg_tx
             .send(MessageFrame::Data(sample.into_scoped(self.scope_id)))
-            .map_err(|_| io_error("failed to send sample"))
-    }
-
-    /// Registers a facet with the receiver.
-    pub fn add_facet(&self, facet: Facet<T>) {
-        let scoped_facet = facet.into_scoped(self.scope_id);
-        let _ = self
-            .msg_tx
-            .send(MessageFrame::Upkeep(UpkeepMessage::AddFacet(scoped_facet)));
-    }
-
-    /// Deregisters a facet from the receiver.
-    pub fn remove_facet(&self, facet: Facet<T>) {
-        let scoped_facet = facet.into_scoped(self.scope_id);
-        let _ = self
-            .msg_tx
-            .send(MessageFrame::Upkeep(UpkeepMessage::RemoveFacet(scoped_facet)));
+            .map_err(|_| io_error("failed to send sample"));
     }
 }
 

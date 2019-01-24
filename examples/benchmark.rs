@@ -2,56 +2,68 @@
 extern crate log;
 extern crate env_logger;
 extern crate getopts;
+extern crate hdrhistogram;
 extern crate hotmic;
 
 use getopts::Options;
-use hotmic::{Facet, Percentile, Receiver, Sink};
+use hdrhistogram::Histogram;
+use hotmic::{Receiver, Sink};
 use std::{
-    env, fmt, thread,
+    env, thread,
     time::{Duration, Instant},
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Metric {
-    Ok,
-    Total,
-}
-
-impl fmt::Display for Metric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Metric::Ok => write!(f, "ok"),
-            Metric::Total => write!(f, "total"),
-        }
-    }
-}
-
 struct Generator {
-    stats: Sink<Metric>,
+    stats: Sink<&'static str>,
     t0: Option<u64>,
     gauge: u64,
+    hist: Histogram<u64>,
+    done: Arc<AtomicBool>,
 }
 
 impl Generator {
-    fn new(stats: Sink<Metric>) -> Generator {
+    fn new(stats: Sink<&'static str>, done: Arc<AtomicBool>) -> Generator {
         Generator {
             stats,
             t0: None,
             gauge: 0,
+            hist: Histogram::<u64>::new_with_bounds(1, u64::max_value(), 3).unwrap(),
+            done,
         }
     }
 
     fn run(&mut self) {
         loop {
+            if self.done.load(Ordering::Relaxed) {
+                break
+            }
+
             self.gauge += 1;
             let t1 = self.stats.clock().raw();
 
             if let Some(t0) = self.t0 {
-                let _ = self.stats.update_timing(Metric::Ok, t0, t1);
-                let _ = self.stats.update_value(Metric::Total, self.gauge);
+                let start = self.stats.clock().now();
+                let _ = self.stats.update_timing("ok", t0, t1);
+                let _ = self.stats.update_gauge("total", self.gauge);
+                let delta = self.stats.clock().now() - start;
+                self.hist.saturating_record(delta);
             }
             self.t0 = Some(t1);
         }
+    }
+}
+
+impl Drop for Generator {
+    fn drop(&mut self) {
+        info!("    sender latency: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
+            nanos_to_readable(self.hist.min()),
+            nanos_to_readable(self.hist.value_at_percentile(50.0)),
+            nanos_to_readable(self.hist.value_at_percentile(95.0)),
+            nanos_to_readable(self.hist.value_at_percentile(99.0)),
+            nanos_to_readable(self.hist.value_at_percentile(99.9)),
+            nanos_to_readable(self.hist.max()));
     }
 }
 
@@ -117,19 +129,21 @@ fn main() {
 
     let sink = receiver.get_sink();
     let sink = sink.scoped("alpha.pools.primary").expect("failed to create sink");
-    sink.add_facet(Facet::Count(Metric::Ok));
-    sink.add_facet(Facet::TimingPercentile(Metric::Ok));
-    sink.add_facet(Facet::Count(Metric::Total));
-    sink.add_facet(Facet::Gauge(Metric::Total));
 
     info!("sink configured");
 
     // Spin up our sample producers.
+    let done = Arc::new(AtomicBool::new(false));
+    let mut handles = Vec::new();
+
     for _ in 0..producers {
         let s = sink.clone();
-        thread::spawn(move || {
-            Generator::new(s).run();
+        let d = done.clone();
+        let handle = thread::spawn(move || {
+            Generator::new(s, d).run();
         });
+
+        handles.push(handle);
     }
 
     // Spin up the sink and let 'er rip.
@@ -145,16 +159,22 @@ fn main() {
 
     let mut total = 0;
     let mut t0 = Instant::now();
+
+    let mut snapshot_hist = Histogram::<u64>::new_with_bounds(1, u64::max_value(), 3).unwrap();
     for _ in 0..seconds {
         let t1 = Instant::now();
         let mut turn_total = 0;
 
+        let start = Instant::now();
         let snapshot = controller.get_snapshot().unwrap();
+        let end = Instant::now();
+        snapshot_hist.saturating_record(duration_as_nanos(end - start) as u64);
+
         if let Some(t) = snapshot.count(&ok_key) {
-            turn_total += *t;
+            turn_total += *t as u64;
         }
 
-        if let Some(t) = snapshot.count(&total_key) {
+        if let Some(t) = snapshot.gauge(&total_key) {
             turn_total += *t;
         }
 
@@ -162,31 +182,40 @@ fn main() {
         total = turn_total;
         let rate = turn_delta as f64 / (duration_as_nanos(t1 - t0) / 1_000_000_000.0);
 
-        info!("rate: {} samples per second", rate);
-        info!(
-            "latency (ns): p50: {} p90: {} p99: {} p999: {} max: {}",
-            snapshot
-                .timing_percentile(&ok_key, Percentile("p50".to_owned(), 0.5))
-                .unwrap_or(&0),
-            snapshot
-                .timing_percentile(&ok_key, Percentile("p90".to_owned(), 0.9))
-                .unwrap_or(&0),
-            snapshot
-                .timing_percentile(&ok_key, Percentile("p99".to_owned(), 0.99))
-                .unwrap_or(&0),
-            snapshot
-                .timing_percentile(&ok_key, Percentile("p999".to_owned(), 0.999))
-                .unwrap_or(&0),
-            snapshot
-                .timing_percentile(&ok_key, Percentile("max".to_owned(), 1.0))
-                .unwrap_or(&0)
-        );
-
+        info!("sample ingest rate: {:.0} samples/sec", rate);
         t0 = t1;
         thread::sleep(Duration::new(1, 0));
     }
 
-    info!("total metrics pushed: {}", total);
+    info!("--------------------------------------------------------------------------------");
+    info!(" ingested samples total: {}", total);
+    info!("snapshot retrieval: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
+        nanos_to_readable(snapshot_hist.min()),
+        nanos_to_readable(snapshot_hist.value_at_percentile(50.0)),
+        nanos_to_readable(snapshot_hist.value_at_percentile(95.0)),
+        nanos_to_readable(snapshot_hist.value_at_percentile(99.0)),
+        nanos_to_readable(snapshot_hist.value_at_percentile(99.9)),
+        nanos_to_readable(snapshot_hist.max()));
+
+
+    // Wait for the producers to finish so we can get their stats too.
+    done.store(true, Ordering::SeqCst);
+    for handle in handles {
+        let _ = handle.join();
+    }
 }
 
 fn duration_as_nanos(d: Duration) -> f64 { (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64 }
+
+fn nanos_to_readable(t: u64) -> String {
+    let f = t as f64;
+    if f < 1_000.0 {
+        format!("{}ns", f)
+    } else if f < 1_000_000.0{
+        format!("{:.0}μs", f / 1_000.0)
+    } else if f < 2_000_000_000.0 {
+        format!("{:.2}ms", f / 1_000_000.0)
+    } else {
+        format!("{:.3}s", f / 1_000_000_000.0)
+    }
+}
