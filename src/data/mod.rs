@@ -1,7 +1,7 @@
 use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use hdrhistogram::Histogram as HdrHistogram;
-use serde::ser::{Serialize, Serializer, SerializeMap};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 use std::{
     fmt::{self, Display},
     hash::Hash,
@@ -79,10 +79,10 @@ impl<T: Clone + Eq + Hash + Display> Sample<T> {
         match self {
             Sample::Count(key, value) => Sample::Count(ScopedKey(scope_id, key), value),
             Sample::Gauge(key, value) => Sample::Gauge(ScopedKey(scope_id, key), value),
-            Sample::TimingHistogram(key, start, end, count) =>
-                Sample::TimingHistogram(ScopedKey(scope_id, key), start, end, count),
-            Sample::ValueHistogram(key, count) =>
-                Sample::ValueHistogram(ScopedKey(scope_id, key), count),
+            Sample::TimingHistogram(key, start, end, count) => {
+                Sample::TimingHistogram(ScopedKey(scope_id, key), start, end, count)
+            },
+            Sample::ValueHistogram(key, count) => Sample::ValueHistogram(ScopedKey(scope_id, key), count),
         }
     }
 }
@@ -125,16 +125,12 @@ impl Snapshot {
     /// Gets the counter value for the given metric key.
     ///
     /// Returns `None` if the metric key has no counter value in this snapshot.
-    pub fn count(&self, key: &str) -> Option<&i64> {
-        self.signed_data.get(key)
-    }
+    pub fn count(&self, key: &str) -> Option<&i64> { self.signed_data.get(key) }
 
     /// Gets the gauge value for the given metric key.
     ///
     /// Returns `None` if the metric key has no gauge value in this snapshot.
-    pub fn gauge(&self, key: &str) -> Option<&u64> {
-        self.unsigned_data.get(key)
-    }
+    pub fn gauge(&self, key: &str) -> Option<&u64> { self.unsigned_data.get(key) }
 
     /// Gets the given timing percentile for given metric key.
     ///

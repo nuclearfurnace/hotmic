@@ -9,10 +9,13 @@ use getopts::Options;
 use hdrhistogram::Histogram;
 use hotmic::{Receiver, Sink};
 use std::{
-    env, thread,
+    env,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
     time::{Duration, Instant},
-    sync::Arc,
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 struct Generator {
@@ -37,7 +40,7 @@ impl Generator {
     fn run(&mut self) {
         loop {
             if self.done.load(Ordering::Relaxed) {
-                break
+                break;
             }
 
             self.gauge += 1;
@@ -57,13 +60,15 @@ impl Generator {
 
 impl Drop for Generator {
     fn drop(&mut self) {
-        info!("    sender latency: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
+        info!(
+            "    sender latency: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
             nanos_to_readable(self.hist.min()),
             nanos_to_readable(self.hist.value_at_percentile(50.0)),
             nanos_to_readable(self.hist.value_at_percentile(95.0)),
             nanos_to_readable(self.hist.value_at_percentile(99.0)),
             nanos_to_readable(self.hist.value_at_percentile(99.9)),
-            nanos_to_readable(self.hist.max()));
+            nanos_to_readable(self.hist.max())
+        );
     }
 }
 
@@ -189,14 +194,15 @@ fn main() {
 
     info!("--------------------------------------------------------------------------------");
     info!(" ingested samples total: {}", total);
-    info!("snapshot retrieval: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
+    info!(
+        "snapshot retrieval: min: {:9} p50: {:9} p95: {:9} p99: {:9} p999: {:9} max: {:9}",
         nanos_to_readable(snapshot_hist.min()),
         nanos_to_readable(snapshot_hist.value_at_percentile(50.0)),
         nanos_to_readable(snapshot_hist.value_at_percentile(95.0)),
         nanos_to_readable(snapshot_hist.value_at_percentile(99.0)),
         nanos_to_readable(snapshot_hist.value_at_percentile(99.9)),
-        nanos_to_readable(snapshot_hist.max()));
-
+        nanos_to_readable(snapshot_hist.max())
+    );
 
     // Wait for the producers to finish so we can get their stats too.
     done.store(true, Ordering::SeqCst);
@@ -211,7 +217,7 @@ fn nanos_to_readable(t: u64) -> String {
     let f = t as f64;
     if f < 1_000.0 {
         format!("{}ns", f)
-    } else if f < 1_000_000.0{
+    } else if f < 1_000_000.0 {
         format!("{:.0}μs", f / 1_000.0)
     } else if f < 2_000_000_000.0 {
         format!("{:.2}ms", f / 1_000_000.0)

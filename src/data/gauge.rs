@@ -18,9 +18,7 @@ impl<T: Clone + Eq + Hash> Gauge<T> {
         *ivalue = value;
     }
 
-    pub fn values(&self) -> Vec<(T, u64)> {
-        self.data.iter().map(|(k, v)| (k.clone(), *v)).collect()
-    }
+    pub fn values(&self) -> Vec<(T, u64)> { self.data.iter().map(|(k, v)| (k.clone(), *v)).collect() }
 }
 
 #[cfg(test)]

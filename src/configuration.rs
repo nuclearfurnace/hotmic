@@ -1,5 +1,4 @@
-use crate::receiver::Receiver;
-use crate::data::Percentile;
+use crate::{data::Percentile, receiver::Receiver};
 use std::{fmt::Display, hash::Hash, marker::PhantomData, time::Duration};
 
 /// A configuration builder for [`Receiver`].
@@ -92,8 +91,7 @@ impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
     /// This controls the percentiles we extract from histograms when taking a snapshot.
     /// Percentiles are represented in metrics as pXXX, where XXX is the percentile i.e. p99 is
     /// 99.0, p999 is 99.9, etc.  min and max are 0.0 and 100.0, respectively.
-    pub fn percentiles(mut self, percentiles: &[f64]) -> Self
-    {
+    pub fn percentiles(mut self, percentiles: &[f64]) -> Self {
         self.percentiles = percentiles.iter().cloned().map(Percentile::from).collect();
         self
     }

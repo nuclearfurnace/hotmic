@@ -1,10 +1,7 @@
 use crate::{
     configuration::Configuration,
     control::{ControlFrame, Controller},
-    data::{
-        Counter, Gauge, Histogram, Sample, ScopedKey, Snapshot,
-        SnapshotBuilder, StringScopedKey,
-    },
+    data::{Counter, Gauge, Histogram, Sample, ScopedKey, Snapshot, SnapshotBuilder, StringScopedKey},
     sink::Sink,
 };
 use crossbeam_channel::{self, bounded, TryRecvError};
@@ -124,7 +121,9 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
                     Err(e) => eprintln!("error receiving message frame: {}", e),
                 }
 
-                if batch.len() == batch_size { break }
+                if batch.len() == batch_size {
+                    break;
+                }
             }
 
             if !batch.is_empty() {
