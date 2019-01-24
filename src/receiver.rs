@@ -2,15 +2,15 @@ use crate::{
     configuration::Configuration,
     control::{ControlFrame, Controller},
     data::{
-        default_percentiles, Counter, Facet, Gauge, Histogram, Percentile, Sample, ScopedKey, Snapshot,
+        Counter, Gauge, Histogram, Sample, ScopedKey, Snapshot,
         SnapshotBuilder, StringScopedKey,
     },
     sink::Sink,
 };
-use crossbeam_channel::{self, bounded, tick, TryRecvError};
+use crossbeam_channel::{self, bounded, TryRecvError};
 use quanta::Clock;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     hash::Hash,
     sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT},
@@ -37,56 +37,54 @@ pub(crate) enum MessageFrame<T> {
     /// An upkeep message.
     ///
     /// This includes registering/deregistering facets, and registering scopes.
-    Upkeep(UpkeepMessage<T>),
+    Upkeep(UpkeepMessage),
 }
 
 /// Various upkeep actions performed by a sink.
-pub(crate) enum UpkeepMessage<T> {
-    /// Registers a new facet with the receiver.
-    AddFacet(Facet<T>),
-
-    /// Deregisters an existing facet from the receiver.
-    RemoveFacet(Facet<T>),
-
+pub(crate) enum UpkeepMessage {
     /// Registers a scope ID/scope identifier pair.
     RegisterScope(usize, String),
 }
 
 /// Metrics receiver which aggregates and processes samples.
 pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
+    config: Configuration<T>,
+
     // Sample aggregation machinery.
     msg_tx: crossbeam_channel::Sender<MessageFrame<ScopedKey<T>>>,
     msg_rx: crossbeam_channel::Receiver<MessageFrame<ScopedKey<T>>>,
     control_tx: crossbeam_channel::Sender<ControlFrame>,
     control_rx: crossbeam_channel::Receiver<ControlFrame>,
-    facets: HashSet<Facet<ScopedKey<T>>>,
 
     // Metric machinery.
     counter: Counter<ScopedKey<T>>,
     gauge: Gauge<ScopedKey<T>>,
-    histogram: Histogram<ScopedKey<T>>,
-    percentiles: Vec<Percentile>,
+    thistogram: Histogram<ScopedKey<T>>,
+    vhistogram: Histogram<ScopedKey<T>>,
 
     clock: Clock,
     scopes: HashMap<usize, String>,
 }
 
 impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
-    pub(crate) fn from_config(conf: Configuration<T>) -> Receiver<T> {
+    pub(crate) fn from_config(config: Configuration<T>) -> Receiver<T> {
         // Create our data, control, and buffer channels.
-        let (msg_tx, msg_rx) = bounded(conf.capacity);
+        let (msg_tx, msg_rx) = bounded(config.capacity);
         let (control_tx, control_rx) = bounded(16);
 
+        let histogram_window = config.histogram_window;
+        let histogram_granularity = config.histogram_granularity;
+
         Receiver {
+            config,
             msg_tx,
             msg_rx,
             control_tx,
             control_rx,
-            facets: HashSet::new(),
             counter: Counter::new(),
             gauge: Gauge::new(),
-            histogram: Histogram::new(Duration::from_secs(10), Duration::from_secs(1)),
-            percentiles: default_percentiles(),
+            thistogram: Histogram::new(histogram_window, histogram_granularity),
+            vhistogram: Histogram::new(histogram_window, histogram_granularity),
             clock: Clock::new(),
             scopes: HashMap::new(),
         }
@@ -103,22 +101,36 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
 
     /// Run the receiver.
     pub fn run(&mut self) {
-        let upkeep_rx = tick(Duration::from_millis(100));
+        let batch_size = self.config.batch_size;
+        let mut next_upkeep = self.clock.now() + duration_as_nanos(Duration::from_millis(250));
+        let mut batch = Vec::with_capacity(batch_size);
 
         loop {
-            if upkeep_rx.try_recv().is_ok() {
+            if self.clock.now() > next_upkeep {
                 let now = Instant::now();
-                self.histogram.upkeep(now);
+                self.thistogram.upkeep(now);
+                self.vhistogram.upkeep(now);
+                next_upkeep = self.clock.now() + duration_as_nanos(Duration::from_millis(250));
             }
 
             while let Ok(cframe) = self.control_rx.try_recv() {
                 self.process_control_frame(cframe);
             }
 
-            match self.msg_rx.try_recv() {
-                Ok(mframe) => self.process_msg_frame(mframe),
-                Err(TryRecvError::Empty) => {},
-                Err(e) => eprintln!("error receiving message frame: {}", e),
+            loop {
+                match self.msg_rx.try_recv() {
+                    Ok(mframe) => batch.push(mframe),
+                    Err(TryRecvError::Empty) => break,
+                    Err(e) => eprintln!("error receiving message frame: {}", e),
+                }
+
+                if batch.len() == batch_size { break }
+            }
+
+            if !batch.is_empty() {
+                for mframe in batch.drain(0..) {
+                    self.process_msg_frame(mframe);
+                }
             }
         }
     }
@@ -141,32 +153,32 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     /// Gets a snapshot of the current metrics/facets.
     fn get_snapshot(&mut self) -> Snapshot {
         let mut snapshot = SnapshotBuilder::new();
-        for facet in &self.facets {
-            match *facet {
-                Facet::Count(ref key) => {
-                    if let Some(actual_key) = self.get_string_scope(key.clone()) {
-                        snapshot.set_count(actual_key, self.counter.value(key));
-                    }
-                },
-                Facet::Gauge(ref key) => {
-                    if let Some(actual_key) = self.get_string_scope(key.clone()) {
-                        snapshot.set_value(actual_key, self.gauge.value(key));
-                    }
-                },
-                Facet::TimingPercentile(ref key) => {
-                    if let Some(hs) = self.histogram.snapshot(key) {
-                        if let Some(actual_key) = self.get_string_scope(key.clone()) {
-                            snapshot.set_timing_percentiles(actual_key, hs, &self.percentiles);
-                        }
-                    }
-                },
-                Facet::ValuePercentile(ref key) => {
-                    if let Some(hs) = self.histogram.snapshot(key) {
-                        if let Some(actual_key) = self.get_string_scope(key.clone()) {
-                            snapshot.set_value_percentiles(actual_key, hs, &self.percentiles);
-                        }
-                    }
-                },
+        let cvalues = self.counter.values();
+        let gvalues = self.gauge.values();
+        let tvalues = self.thistogram.values();
+        let vvalues = self.vhistogram.values();
+
+        for (key, value) in cvalues {
+            if let Some(actual_key) = self.get_string_scope(key) {
+                snapshot.set_count(actual_key, value);
+            }
+        }
+
+        for (key, value) in gvalues {
+            if let Some(actual_key) = self.get_string_scope(key) {
+                snapshot.set_gauge(actual_key, value);
+            }
+        }
+
+        for (key, value) in tvalues {
+            if let Some(actual_key) = self.get_string_scope(key) {
+                snapshot.set_timing_histogram(actual_key, value, &self.config.percentiles);
+            }
+        }
+
+        for (key, value) in vvalues {
+            if let Some(actual_key) = self.get_string_scope(key) {
+                snapshot.set_value_histogram(actual_key, value, &self.config.percentiles);
             }
         }
 
@@ -184,10 +196,8 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     }
 
     /// Processes an upkeep message.
-    fn process_upkeep_msg(&mut self, msg: UpkeepMessage<ScopedKey<T>>) {
+    fn process_upkeep_msg(&mut self, msg: UpkeepMessage) {
         match msg {
-            UpkeepMessage::AddFacet(facet) => self.add_facet(facet),
-            UpkeepMessage::RemoveFacet(facet) => self.remove_facet(facet),
             UpkeepMessage::RegisterScope(id, scope) => {
                 let _ = self.scopes.entry(id).or_insert_with(|| scope);
             },
@@ -199,43 +209,25 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
         match msg {
             MessageFrame::Upkeep(umsg) => self.process_upkeep_msg(umsg),
             MessageFrame::Data(sample) => {
-                let sample = match sample {
-                    Sample::Timing(key, start, end, _) => {
-                        let delta = self.clock.delta(start, end);
-
-                        Sample::Value(key, delta)
+                match sample {
+                    Sample::Count(key, count) => {
+                        self.counter.update(key, count);
                     },
-                    x => x,
-                };
-
-                self.counter.update(&sample);
-                self.gauge.update(&sample);
-                self.histogram.update(&sample);
+                    Sample::Gauge(key, value) => {
+                        self.gauge.update(key, value);
+                    },
+                    Sample::TimingHistogram(key, start, end, count) => {
+                        let delta = self.clock.delta(start, end);
+                        self.counter.update(key.clone(), count as i64);
+                        self.thistogram.update(key, delta);
+                    },
+                    Sample::ValueHistogram(key, value) => {
+                        self.vhistogram.update(key, value);
+                    },
+                }
             },
         }
     }
-
-    /// Registers a facet with the receiver.
-    fn add_facet(&mut self, facet: Facet<ScopedKey<T>>) {
-        match facet.clone() {
-            Facet::Count(t) => self.counter.register(t),
-            Facet::Gauge(t) => self.gauge.register(t),
-            Facet::TimingPercentile(t) => self.histogram.register(t),
-            Facet::ValuePercentile(t) => self.histogram.register(t),
-        }
-
-        self.facets.insert(facet);
-    }
-
-    /// Deregisters a facet from the receiver.
-    fn remove_facet(&mut self, facet: Facet<ScopedKey<T>>) {
-        match facet.clone() {
-            Facet::Count(t) => self.counter.deregister(&t),
-            Facet::Gauge(t) => self.gauge.deregister(&t),
-            Facet::TimingPercentile(t) => self.histogram.deregister(&t),
-            Facet::ValuePercentile(t) => self.histogram.deregister(&t),
-        }
-
-        self.facets.remove(&facet);
-    }
 }
+
+fn duration_as_nanos(d: Duration) -> u64 { (d.as_secs() * 1_000_000_000) + u64::from(d.subsec_nanos()) }

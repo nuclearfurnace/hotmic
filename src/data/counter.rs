@@ -1,110 +1,41 @@
-use super::Sample;
 use fnv::FnvBuildHasher;
 use hashbrown::HashMap;
 use std::hash::Hash;
 
 pub(crate) struct Counter<T> {
-    pub data: HashMap<T, i64, FnvBuildHasher>,
+    data: HashMap<T, i64, FnvBuildHasher>,
 }
 
-impl<T: Eq + Hash> Counter<T> {
+impl<T: Clone + Eq + Hash> Counter<T> {
     pub fn new() -> Counter<T> {
         Counter {
             data: HashMap::<T, i64, FnvBuildHasher>::default(),
         }
     }
 
-    pub fn register(&mut self, key: T) { let _ = self.data.entry(key).or_insert(0); }
-
-    pub fn deregister(&mut self, key: &T) { let _ = self.data.remove(key); }
-
-    pub fn update(&mut self, sample: &Sample<T>) {
-        match sample {
-            Sample::Timing(key, _, _, count) => {
-                let coerced = *count as i64;
-                if let Some(entry) = self.data.get_mut(&key) {
-                    *entry += coerced;
-                }
-            },
-            Sample::Count(key, count) => {
-                if let Some(entry) = self.data.get_mut(&key) {
-                    *entry += *count;
-                }
-            },
-            Sample::Value(key, _) => {
-                if let Some(entry) = self.data.get_mut(&key) {
-                    *entry += 1;
-                }
-            },
-        }
+    pub fn update(&mut self, key: T, delta: i64) {
+        let value = self.data.entry(key).or_insert(0);
+        *value += delta;
     }
 
-    pub fn value(&self, key: &T) -> i64 { *self.data.get(key).unwrap_or(&0) }
+    pub fn values(&self) -> Vec<(T, i64)> {
+        self.data.iter().map(|(k, v)| (k.clone(), *v)).collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Counter;
-    use crate::data::Sample;
-
-    #[test]
-    fn test_counter_unregistered_update() {
-        let mut counter = Counter::new();
-
-        let key = "foo".to_owned();
-        let sample = Sample::Count(key.clone(), 42);
-        counter.update(&sample);
-
-        let value = counter.value(&key);
-        assert_eq!(value, 0);
-    }
 
     #[test]
     fn test_counter_simple_update() {
         let mut counter = Counter::new();
 
-        let key = "foo".to_owned();
-        counter.register(key.clone());
+        let key = "foo";
+        counter.update(key.clone(), 42);
 
-        let sample = Sample::Count(key.clone(), 42);
-        counter.update(&sample);
-
-        let value = counter.value(&key);
-        assert_eq!(value, 42);
-    }
-
-    #[test]
-    fn test_counter_sample_support() {
-        let mut counter = Counter::new();
-
-        // Count samples.
-        let ckey = "ckey".to_owned();
-        counter.register(ckey.clone());
-
-        let csample = Sample::Count(ckey.clone(), 42);
-        counter.update(&csample);
-
-        let cvalue = counter.value(&ckey);
-        assert_eq!(cvalue, 42);
-
-        // Timing samples.
-        let tkey = "tkey".to_owned();
-        counter.register(tkey.clone());
-
-        let tsample = Sample::Timing(tkey.clone(), 0, 1, 73);
-        counter.update(&tsample);
-
-        let tvalue = counter.value(&tkey);
-        assert_eq!(tvalue, 73);
-
-        // Value samples.
-        let vkey = "vkey".to_owned();
-        counter.register(vkey.clone());
-
-        let vsample = Sample::Value(vkey.clone(), 22);
-        counter.update(&vsample);
-
-        let vvalue = counter.value(&vkey);
-        assert_eq!(vvalue, 1);
+        let values = counter.values();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].1, 42);
     }
 }
