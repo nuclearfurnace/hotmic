@@ -99,9 +99,7 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub fn update_gauge(&self, key: T, value: u64) { self.send(Sample::Gauge(key, value)) }
 
     /// Updates the timing histogram for a given metric.
-    pub fn update_timing(&self, key: T, start: u64, end: u64) {
-        self.send(Sample::TimingHistogram(key, start, end, 1))
-    }
+    pub fn update_timing(&self, key: T, start: u64, end: u64) { self.send(Sample::TimingHistogram(key, start, end, 1)) }
 
     /// Updates the timing histogram for a given metric, with a count.
     pub fn update_timing_with_count(&self, key: T, start: u64, end: u64, count: u64) {
@@ -109,23 +107,18 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     }
 
     /// Updates the value histogram for a given metric.
-    pub fn update_value(&self, key: T, value: u64) {
-        self.send(Sample::ValueHistogram(key, value))
-    }
+    pub fn update_value(&self, key: T, value: u64) { self.send(Sample::ValueHistogram(key, value)) }
 
     /// Increments the given metric by one.
-    pub fn increment(&self, key: T) {
-        self.update_count(key, 1)
-    }
+    pub fn increment(&self, key: T) { self.update_count(key, 1) }
 
     /// Decrements the given metric by one.
-    pub fn decrement(&self, key: T) {
-        self.update_count(key, -1)
-    }
+    pub fn decrement(&self, key: T) { self.update_count(key, -1) }
 
     /// Sends a raw metric sample to the receiver.
     fn send(&self, sample: Sample<T>) {
-        let _ = self.msg_tx
+        let _ = self
+            .msg_tx
             .send(MessageFrame::Data(sample.into_scoped(self.scope_id)))
             .map_err(|_| io_error("failed to send sample"));
     }

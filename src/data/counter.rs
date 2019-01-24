@@ -18,9 +18,7 @@ impl<T: Clone + Eq + Hash> Counter<T> {
         *value += delta;
     }
 
-    pub fn values(&self) -> Vec<(T, i64)> {
-        self.data.iter().map(|(k, v)| (k.clone(), *v)).collect()
-    }
+    pub fn values(&self) -> Vec<(T, i64)> { self.data.iter().map(|(k, v)| (k.clone(), *v)).collect() }
 }
 
 #[cfg(test)]

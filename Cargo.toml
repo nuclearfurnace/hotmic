@@ -1,12 +1,12 @@
 [package]
 name = "hotmic"
-version = "0.5.2"
+version = "0.6.0"
 authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
 edition = "2018"
 
 license = "MIT"
 
-description  = "high-speed metrics collection library"
+description = "high-speed metrics collection library"
 
 homepage = "https://github.com/nuclearfurnace/hotmic"
 repository = "https://github.com/nuclearfurnace/hotmic"

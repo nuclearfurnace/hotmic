@@ -46,8 +46,7 @@
 //! ```
 //! # extern crate hotmic;
 //! use hotmic::Receiver;
-//! use std::thread;
-//! use std::time::Duration;
+//! use std::{thread, time::Duration};
 //! let receiver = Receiver::builder().build();
 //! let sink = receiver.get_sink();
 //!
