@@ -112,17 +112,25 @@
 //!
 //! // This sink is under the "secret" scope.  Since we derived ourselves from the root scope,
 //! // we're not nested under anything, but our metric name will end up being "secret.widgets".
-//! let scoped_sink = root_sink.scoped("secret").unwrap();
+//! let scoped_sink = root_sink.scoped("secret");
 //! scoped_sink.update_count("widgets", 42);
 //!
 //! // This sink is under the "supersecret" scope, but we're also nested!  The metric name for this
 //! // sample will end up being "secret.supersecret.widget".
-//! let scoped_sink_two = scoped_sink.scoped("supersecret").unwrap();
+//! let scoped_sink_two = scoped_sink.scoped("supersecret");
 //! scoped_sink_two.update_count("widgets", 42);
 //!
 //! // Sinks retain their scope even when cloned, so the metric name will be the same as above.
 //! let cloned_sink = scoped_sink_two.clone();
 //! cloned_sink.update_count("widgets", 42);
+//!
+//! // This sink will be nested two levels deeper than its parent by using a slightly different
+//! // input scope: scope can be a single string, or multiple strings, which is interpreted as
+//! // nesting N levels deep.
+//! //
+//! // This metric name will end up being "super.secret.ultra.special.widgets".
+//! let scoped_sink_three = scoped_sink.scoped(&["super", "secret", "ultra", "special"]);
+//! scoped_sink_two.update_count("widgets", 42);
 //! ```
 mod configuration;
 mod control;

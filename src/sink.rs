@@ -14,6 +14,11 @@ pub enum SinkError {
     InvalidScope,
 }
 
+/// A value that can be used as a metric scope.
+pub trait AsScoped<'a> {
+    fn as_scoped(&'a self, base: String) -> String;
+}
+
 /// Handle for sending metric samples into the receiver.
 ///
 /// [`Sink`] is cloneable, and can not only send metric samples but can register and deregister
@@ -68,23 +73,15 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     /// already scoped, the scopes will be merged together using a `.` as the string separator.
     /// This makes it easy to nest scopes.  Cloning a scoped [`Sink`], though, will inherit the
     /// same scope as the original.
-    pub fn scoped(&self, scope: &str) -> Result<Sink<T>, SinkError> {
-        if scope.is_empty() {
-            return Err(SinkError::InvalidScope);
-        }
+    pub fn scoped<'a, S: AsScoped<'a> + ?Sized>(&self, scope: &'a S) -> Sink<T> {
+        let new_scope = scope.as_scoped(self.scope.clone());
 
-        let mut new_scope = self.scope.clone();
-        if !new_scope.is_empty() {
-            new_scope.push('.');
-        }
-        new_scope.push_str(scope);
-
-        Ok(Sink::new(
+        Sink::new(
             self.msg_tx.clone(),
             self.clock.clone(),
             new_scope,
             get_scope_id(),
-        ))
+        )
     }
 
     /// Reference to the internal high-speed clock interface.
@@ -132,5 +129,31 @@ impl<T: Clone + Eq + Hash + Display> Clone for Sink<T> {
             scope: self.scope.clone(),
             scope_id: self.scope_id,
         }
+    }
+}
+
+impl<'a> AsScoped<'a> for str {
+    fn as_scoped(&'a self, mut base: String) -> String {
+        if !base.is_empty() {
+            base.push_str(".");
+        }
+        base.push_str(self);
+        base
+    }
+}
+
+impl<'a, 'b, T> AsScoped<'a> for T
+where
+    &'a T: AsRef<[&'b str]>,
+    T: 'a,
+{
+    fn as_scoped(&'a self, mut base: String) -> String {
+        for item in self.as_ref() {
+            if !base.is_empty() {
+                base.push('.');
+            }
+            base.push_str(item);
+        }
+        base
     }
 }
