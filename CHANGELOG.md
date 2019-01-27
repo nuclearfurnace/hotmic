@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 - Sink scopes can now be either a `&str` or `&[&str]`.
+- Fixed a bug where the receiver loop ran its thread at 100%.
 
 ## [0.6.0] - 2019-01-24
 ### Changed

@@ -4,7 +4,7 @@ use crate::{
     data::{Counter, Gauge, Histogram, Sample, ScopedKey, Snapshot, SnapshotBuilder, StringScopedKey},
     sink::Sink,
 };
-use crossbeam_channel::{self, bounded, TryRecvError};
+use crossbeam_channel::{self, bounded, tick, Select, TryRecvError};
 use quanta::Clock;
 use std::{
     collections::HashMap,
@@ -49,9 +49,9 @@ pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
 
     // Sample aggregation machinery.
     msg_tx: crossbeam_channel::Sender<MessageFrame<ScopedKey<T>>>,
-    msg_rx: crossbeam_channel::Receiver<MessageFrame<ScopedKey<T>>>,
+    msg_rx: Option<crossbeam_channel::Receiver<MessageFrame<ScopedKey<T>>>>,
     control_tx: crossbeam_channel::Sender<ControlFrame>,
-    control_rx: crossbeam_channel::Receiver<ControlFrame>,
+    control_rx: Option<crossbeam_channel::Receiver<ControlFrame>>,
 
     // Metric machinery.
     counter: Counter<ScopedKey<T>>,
@@ -75,9 +75,9 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
         Receiver {
             config,
             msg_tx,
-            msg_rx,
+            msg_rx: Some(msg_rx),
             control_tx,
-            control_rx,
+            control_rx: Some(control_rx),
             counter: Counter::new(),
             gauge: Gauge::new(),
             thistogram: Histogram::new(histogram_window, histogram_granularity),
@@ -99,23 +99,32 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     /// Run the receiver.
     pub fn run(&mut self) {
         let batch_size = self.config.batch_size;
-        let mut next_upkeep = self.clock.now() + duration_as_nanos(Duration::from_millis(250));
         let mut batch = Vec::with_capacity(batch_size);
+        let upkeep_rx = tick(Duration::from_millis(250));
+        let control_rx = self.control_rx.take().expect("failed to take control rx");
+        let msg_rx = self.msg_rx.take().expect("failed to take msg rx");
+
+        let mut selector = Select::new();
+        let _ = selector.recv(&upkeep_rx);
+        let _ = selector.recv(&control_rx);
+        let _ = selector.recv(&msg_rx);
 
         loop {
-            if self.clock.now() > next_upkeep {
+            // Block on having something to do.
+            let _ = selector.ready();
+
+            if let Ok(_) = upkeep_rx.try_recv() {
                 let now = Instant::now();
                 self.thistogram.upkeep(now);
                 self.vhistogram.upkeep(now);
-                next_upkeep = self.clock.now() + duration_as_nanos(Duration::from_millis(250));
             }
 
-            while let Ok(cframe) = self.control_rx.try_recv() {
+            while let Ok(cframe) = control_rx.try_recv() {
                 self.process_control_frame(cframe);
             }
 
             loop {
-                match self.msg_rx.try_recv() {
+                match msg_rx.try_recv() {
                     Ok(mframe) => batch.push(mframe),
                     Err(TryRecvError::Empty) => break,
                     Err(e) => eprintln!("error receiving message frame: {}", e),
@@ -150,7 +159,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     }
 
     /// Gets a snapshot of the current metrics/facets.
-    fn get_snapshot(&mut self) -> Snapshot {
+    fn get_snapshot(&self) -> Snapshot {
         let mut snapshot = SnapshotBuilder::new();
         let cvalues = self.counter.values();
         let gvalues = self.gauge.values();
@@ -185,7 +194,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     }
 
     /// Processes a control frame.
-    fn process_control_frame(&mut self, msg: ControlFrame) {
+    fn process_control_frame(&self, msg: ControlFrame) {
         match msg {
             ControlFrame::Snapshot(tx) => {
                 let snapshot = self.get_snapshot();
@@ -228,5 +237,3 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
         }
     }
 }
-
-fn duration_as_nanos(d: Duration) -> u64 { (d.as_secs() * 1_000_000_000) + u64::from(d.subsec_nanos()) }

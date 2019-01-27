@@ -83,6 +83,7 @@ pub fn opts() -> Options {
     opts.optopt("d", "duration", "number of seconds to run the benchmark", "INTEGER");
     opts.optopt("p", "producers", "number of producers", "INTEGER");
     opts.optopt("c", "capacity", "maximum number of unprocessed items", "INTEGER");
+    opts.optopt("b", "batch-size", "maximum number of items in a batch", "INTEGER");
     opts.optflag("h", "help", "print this help menu");
 
     opts
@@ -118,7 +119,12 @@ fn main() {
         .unwrap();
     let capacity = matches
         .opt_str("capacity")
-        .unwrap_or_else(|| "4096".to_owned())
+        .unwrap_or_else(|| "1024".to_owned())
+        .parse()
+        .unwrap();
+    let batch_size = matches
+        .opt_str("batch-size")
+        .unwrap_or_else(|| "256".to_owned())
         .parse()
         .unwrap();
     let producers = matches
@@ -129,11 +135,15 @@ fn main() {
 
     info!("producers: {}", producers);
     info!("capacity: {}", capacity);
+    info!("batch size: {}", batch_size);
 
-    let mut receiver = Receiver::builder().capacity(capacity).build();
+    let mut receiver = Receiver::builder()
+        .capacity(capacity)
+        .batch_size(batch_size)
+        .build();
 
     let sink = receiver.get_sink();
-    let sink = sink.scoped("alpha.pools.primary").expect("failed to create sink");
+    let sink = sink.scoped(&["alpha","pools","primary"]);
 
     info!("sink configured");
 
