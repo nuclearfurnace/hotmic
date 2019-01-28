@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ## Changed
-- Fixed a bug where new sinks with the same scope would overwrite each others metrics.
+- Fixed a bug where new sinks with the same scope would overwrite each others metrics. [#20](https://github.com/nuclearfurnace/hotmic/pull/20)
 
 ## [0.7.0] - 2019-01-27
 ### Changed
