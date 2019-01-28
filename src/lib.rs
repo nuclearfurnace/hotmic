@@ -137,6 +137,7 @@ mod control;
 mod data;
 mod helper;
 mod receiver;
+mod scopes;
 mod sink;
 
 pub use self::{

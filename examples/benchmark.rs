@@ -137,13 +137,10 @@ fn main() {
     info!("capacity: {}", capacity);
     info!("batch size: {}", batch_size);
 
-    let mut receiver = Receiver::builder()
-        .capacity(capacity)
-        .batch_size(batch_size)
-        .build();
+    let mut receiver = Receiver::builder().capacity(capacity).batch_size(batch_size).build();
 
     let sink = receiver.get_sink();
-    let sink = sink.scoped(&["alpha","pools","primary"]);
+    let sink = sink.scoped(&["alpha", "pools", "primary"]);
 
     info!("sink configured");
 

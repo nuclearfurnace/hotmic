@@ -52,10 +52,10 @@ pub(crate) enum Sample<T> {
 
 /// An integer scoped metric key.
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(usize, T);
+pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(u64, T);
 
 impl<T: Clone + Eq + Hash + Display> ScopedKey<T> {
-    pub(crate) fn id(&self) -> usize { self.0 }
+    pub(crate) fn id(&self) -> u64 { self.0 }
 
     pub(crate) fn into_string_scoped(self, scope: String) -> StringScopedKey<T> { StringScopedKey(scope, self.1) }
 }
@@ -75,7 +75,7 @@ impl<T: Clone + Hash + Eq + Display> Display for StringScopedKey<T> {
 }
 
 impl<T: Clone + Eq + Hash + Display> Sample<T> {
-    pub(crate) fn into_scoped(self, scope_id: usize) -> Sample<ScopedKey<T>> {
+    pub(crate) fn into_scoped(self, scope_id: u64) -> Sample<ScopedKey<T>> {
         match self {
             Sample::Count(key, value) => Sample::Count(ScopedKey(scope_id, key), value),
             Sample::Gauge(key, value) => Sample::Gauge(ScopedKey(scope_id, key), value),
