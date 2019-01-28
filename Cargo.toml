@@ -23,6 +23,7 @@ lto = true
 
 [dependencies]
 crossbeam-channel = "^0.3"
+parking_lot = "^0.7"
 hdrhistogram = "^6.1"
 fnv = "^1.0"
 hashbrown = "^0.1"

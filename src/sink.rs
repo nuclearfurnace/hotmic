@@ -1,11 +1,12 @@
 use crate::{
     data::{Sample, ScopedKey},
     helper::io_error,
-    receiver::{get_scope_id, MessageFrame, UpkeepMessage},
+    receiver::MessageFrame,
+    scopes::Scopes,
 };
 use crossbeam_channel::Sender;
 use quanta::Clock;
-use std::{fmt::Display, hash::Hash};
+use std::{fmt::Display, hash::Hash, sync::Arc};
 
 /// Erorrs during sink creation.
 #[derive(Debug)]
@@ -26,28 +27,33 @@ pub trait AsScoped<'a> {
 pub struct Sink<T: Clone + Eq + Hash + Display> {
     msg_tx: Sender<MessageFrame<ScopedKey<T>>>,
     clock: Clock,
+    scopes: Arc<Scopes>,
     scope: String,
-    scope_id: usize,
+    scope_id: u64,
 }
 
 impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub(crate) fn new(
-        msg_tx: Sender<MessageFrame<ScopedKey<T>>>, clock: Clock, scope: String, scope_id: usize,
+        msg_tx: Sender<MessageFrame<ScopedKey<T>>>, clock: Clock, scopes: Arc<Scopes>, scope: String,
     ) -> Sink<T> {
-        // Register our scope with the receiver.  We send this over the data channel because the
-        // control channel is usually smaller, so we have a better chance of not deadlocking
-        // ourselves by creating many sinks before the receiver is started, alsooooo, we could get
-        // into a situation where a sink sent metrics that got processed before the scope was
-        // registered depending on when it was creating during a single turn of the receiver.
-        //
-        // Long story short, we need to make sure we register the scope before processing any data
-        // samples, so we shove them both into the same channel to get that guarantee.
-        let umsg = UpkeepMessage::RegisterScope(scope_id, scope.clone());
-        let _ = msg_tx.send(MessageFrame::Upkeep(umsg));
+        let scope_id = scopes.register(scope.clone());
 
         Sink {
             msg_tx,
             clock,
+            scopes,
+            scope,
+            scope_id,
+        }
+    }
+
+    pub(crate) fn new_with_scope_id(
+        msg_tx: Sender<MessageFrame<ScopedKey<T>>>, clock: Clock, scopes: Arc<Scopes>, scope: String, scope_id: u64,
+    ) -> Sink<T> {
+        Sink {
+            msg_tx,
+            clock,
+            scopes,
             scope,
             scope_id,
         }
@@ -76,12 +82,7 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub fn scoped<'a, S: AsScoped<'a> + ?Sized>(&self, scope: &'a S) -> Sink<T> {
         let new_scope = scope.as_scoped(self.scope.clone());
 
-        Sink::new(
-            self.msg_tx.clone(),
-            self.clock.clone(),
-            new_scope,
-            get_scope_id(),
-        )
+        Sink::new(self.msg_tx.clone(), self.clock.clone(), self.scopes.clone(), new_scope)
     }
 
     /// Reference to the internal high-speed clock interface.
@@ -126,6 +127,7 @@ impl<T: Clone + Eq + Hash + Display> Clone for Sink<T> {
         Sink {
             msg_tx: self.msg_tx.clone(),
             clock: self.clock.clone(),
+            scopes: self.scopes.clone(),
             scope: self.scope.clone(),
             scope_id: self.scope_id,
         }

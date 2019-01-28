@@ -2,45 +2,22 @@ use crate::{
     configuration::Configuration,
     control::{ControlFrame, Controller},
     data::{Counter, Gauge, Histogram, Sample, ScopedKey, Snapshot, SnapshotBuilder, StringScopedKey},
+    scopes::Scopes,
     sink::Sink,
 };
 use crossbeam_channel::{self, bounded, tick, Select, TryRecvError};
 use quanta::Clock;
 use std::{
-    collections::HashMap,
     fmt::Display,
     hash::Hash,
-    sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT},
+    sync::Arc,
     time::{Duration, Instant},
 };
-
-static GLOBAL_SCOPE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
-
-pub(crate) fn get_scope_id() -> usize {
-    loop {
-        let value = GLOBAL_SCOPE_ID.fetch_add(1, Ordering::SeqCst);
-        if value != 0 {
-            // 0 is reserved.
-            return value;
-        }
-    }
-}
 
 /// Wrapper for all messages that flow over the data channel between sink/receiver.
 pub(crate) enum MessageFrame<T> {
     /// A normal data message holding a metric sample.
     Data(Sample<T>),
-
-    /// An upkeep message.
-    ///
-    /// This includes registering/deregistering facets, and registering scopes.
-    Upkeep(UpkeepMessage),
-}
-
-/// Various upkeep actions performed by a sink.
-pub(crate) enum UpkeepMessage {
-    /// Registers a scope ID/scope identifier pair.
-    RegisterScope(usize, String),
 }
 
 /// Metrics receiver which aggregates and processes samples.
@@ -60,7 +37,7 @@ pub struct Receiver<T: Clone + Eq + Hash + Display + Send> {
     vhistogram: Histogram<ScopedKey<T>>,
 
     clock: Clock,
-    scopes: HashMap<usize, String>,
+    scopes: Arc<Scopes>,
 }
 
 impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
@@ -83,7 +60,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
             thistogram: Histogram::new(histogram_window, histogram_granularity),
             vhistogram: Histogram::new(histogram_window, histogram_granularity),
             clock: Clock::new(),
-            scopes: HashMap::new(),
+            scopes: Arc::new(Scopes::new()),
         }
     }
 
@@ -91,7 +68,15 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     pub fn builder() -> Configuration<T> { Configuration::default() }
 
     /// Creates a `Sink` bound to this receiver.
-    pub fn get_sink(&self) -> Sink<T> { Sink::new(self.msg_tx.clone(), self.clock.clone(), "".to_owned(), 0) }
+    pub fn get_sink(&self) -> Sink<T> {
+        Sink::new_with_scope_id(
+            self.msg_tx.clone(),
+            self.clock.clone(),
+            self.scopes.clone(),
+            "".to_owned(),
+            0,
+        )
+    }
 
     /// Creates a `Controller` bound to this receiver.
     pub fn get_controller(&self) -> Controller { Controller::new(self.control_tx.clone()) }
@@ -113,7 +98,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
             // Block on having something to do.
             let _ = selector.ready();
 
-            if let Ok(_) = upkeep_rx.try_recv() {
+            if upkeep_rx.try_recv().is_ok() {
                 let now = Instant::now();
                 self.thistogram.upkeep(now);
                 self.vhistogram.upkeep(now);
@@ -153,9 +138,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
             return Some(key.into_string_scoped("".to_owned()));
         }
 
-        self.scopes
-            .get(&scope_id)
-            .map(|scope| key.into_string_scoped(scope.clone()))
+        self.scopes.get(scope_id).map(|scope| key.into_string_scoped(scope))
     }
 
     /// Gets a snapshot of the current metrics/facets.
@@ -203,19 +186,9 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
         }
     }
 
-    /// Processes an upkeep message.
-    fn process_upkeep_msg(&mut self, msg: UpkeepMessage) {
-        match msg {
-            UpkeepMessage::RegisterScope(id, scope) => {
-                let _ = self.scopes.entry(id).or_insert_with(|| scope);
-            },
-        }
-    }
-
     /// Processes a message frame.
     fn process_msg_frame(&mut self, msg: MessageFrame<ScopedKey<T>>) {
         match msg {
-            MessageFrame::Upkeep(umsg) => self.process_upkeep_msg(umsg),
             MessageFrame::Data(sample) => {
                 match sample {
                     Sample::Count(key, count) => {
