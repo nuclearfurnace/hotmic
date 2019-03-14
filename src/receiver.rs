@@ -183,6 +183,10 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
                 let snapshot = self.get_snapshot();
                 let _ = tx.send(snapshot);
             },
+            ControlFrame::SnapshotAsync(tx) => {
+                let snapshot = self.get_snapshot();
+                let _ = tx.send(snapshot);
+            },
         }
     }
 

@@ -232,6 +232,15 @@ impl<T: Send + Eq + Hash + Send + Display + Clone> SnapshotBuilder<T> {
     pub(crate) fn into_inner(self) -> Snapshot { self.inner }
 }
 
+#[derive(Debug)]
+pub enum SnapshotError {
+    /// There was an internal error when trying to collect a snapshot.
+    InternalError,
+
+    /// A snapshot was requested but the receiver is shutdown.
+    ReceiverShutdown,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Percentile, SnapshotBuilder};
