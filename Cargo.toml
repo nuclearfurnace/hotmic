@@ -29,6 +29,7 @@ fnv = "^1.0"
 hashbrown = "^0.1"
 quanta = "^0.2"
 serde = "^1.0"
+derivative = "^1.0"
 tokio-sync = "^0.1"
 
 [dev-dependencies]

@@ -27,7 +27,9 @@ impl<T> Default for Configuration<T> {
 
 impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
     /// Creates a new [`Configuration`] with default values.
-    pub fn new() -> Configuration<T> { Default::default() }
+    pub fn new() -> Configuration<T> {
+        Default::default()
+    }
 
     /// Sets the buffer capacity.
     ///
@@ -97,7 +99,9 @@ impl<T: Send + Eq + Hash + Display + Clone> Configuration<T> {
     }
 
     /// Create a [`Receiver`] based on this configuration.
-    pub fn build(self) -> Receiver<T> { Receiver::from_config(self) }
+    pub fn build(self) -> Receiver<T> {
+        Receiver::from_config(self)
+    }
 }
 
 /// A default set of percentiles that should support most use cases.

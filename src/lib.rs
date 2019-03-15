@@ -21,8 +21,8 @@
 //! comes to sinks. [`Receiver`] also allows configuring the capacity of the underlying channels to
 //! finely tune resource consumption.
 //!
-//! Being based on [`crossbeam-channel`] allows us to process close to five million metrics per second
-//! on a single core, with very low ingest latencies: 325-350ns on average at full throughput.
+//! Being based on [`crossbeam-channel`] allows us to process close to fifteen million metrics per
+//! second on a single core, with very low ingest latencies: 100ns on average at full throughput.
 //!
 //! # Metrics
 //!
@@ -132,6 +132,9 @@
 //! let scoped_sink_three = scoped_sink.scoped(&["super", "secret", "ultra", "special"]);
 //! scoped_sink_two.update_count("widgets", 42);
 //! ```
+#[macro_use]
+extern crate derivative;
+
 mod configuration;
 mod control;
 mod data;
@@ -143,7 +146,7 @@ mod sink;
 pub use self::{
     configuration::Configuration,
     control::Controller,
-    data::Snapshot,
+    data::snapshot::{SimpleSnapshot, Snapshot},
     receiver::Receiver,
     sink::{Sink, SinkError},
 };
