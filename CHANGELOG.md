@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.8.0] - 2019-03-15
 ### Changed
 - Removed accessors from `Snapshot`.  It is not an opaque type that can be turned into an iterator which will provide access to typed metric values so that an external consumer can get all of the values in the snapshot, including their type, for proper exporting.
 ### Added
