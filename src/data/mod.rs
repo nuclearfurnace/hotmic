@@ -102,10 +102,15 @@ pub struct Percentile {
 }
 
 impl Percentile {
+    /// Gets the standardized label for this percentile value.
+    ///
+    /// This follows the convention of `pXXX`, where `xxx` represents the percentage.  For example,
+    /// for the 99th percentile, you would get `p99`.  For the 99.9th percentile, you would get `p999`.
     pub fn label(&self) -> &str {
         self.label.as_str()
     }
 
+    /// Gets the actual percentile value.
     pub fn percentile(&self) -> f64 {
         self.value
     }

@@ -1,6 +1,7 @@
 use super::data::snapshot::Snapshot;
 use crossbeam_channel::{bounded, Sender};
 use tokio_sync::oneshot;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum SnapshotError {
@@ -54,5 +55,14 @@ impl Controller {
             .send(msg)
             .map_err(|_| SnapshotError::ReceiverShutdown)
             .map(move |_| rx)
+    }
+}
+
+impl fmt::Display for SnapshotError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SnapshotError::InternalError => write!(f, "internal error during snapshot generation"),
+            SnapshotError::ReceiverShutdown => write!(f, "the receiver is not currently running"),
+        }
     }
 }

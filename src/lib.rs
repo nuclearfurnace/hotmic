@@ -145,8 +145,17 @@ mod sink;
 
 pub use self::{
     configuration::Configuration,
-    control::Controller,
-    data::snapshot::{SimpleSnapshot, Snapshot},
+    control::{Controller, SnapshotError},
+    data::Percentile,
     receiver::Receiver,
     sink::{Sink, SinkError},
 };
+
+pub mod snapshot {
+    pub use super::data::snapshot::{
+        Snapshot,
+        SimpleSnapshot,
+        TypedMeasurement,
+        SummarizedHistogram,
+    };
+}

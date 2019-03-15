@@ -3,6 +3,11 @@ use hdrhistogram::Histogram as HdrHistogram;
 use std::collections::HashMap;
 use std::fmt::Display;
 
+/// A typed metric measurement, used in snapshots.
+///
+/// This type provides a way to wrap the value of a metric, for use in a snapshot, while also
+/// providing the overall type of the metric, so that downstream consumers who how to properly
+/// format the data.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TypedMeasurement {
     Counter(String, i64),
@@ -59,7 +64,7 @@ impl Snapshot {
             .push(TypedMeasurement::ValueHistogram(key.to_string(), summarized));
     }
 
-    /// Converts this [`Snapshot`] into `[`SimpleSnapshot`].
+    /// Converts this [`Snapshot`] into [`SimpleSnapshot`].
     ///
     /// [`SimpleSnapshot`] provides a programmatic interface to more easily sift through the
     /// metrics within, without needing to evaluate all of them.
@@ -138,6 +143,11 @@ impl SimpleSnapshot {
     }
 }
 
+/// A pre-summarized histogram.
+///
+/// Based on the configuration of the [`Receiver`], this histogram will represent only the
+/// configured percentiles to extract for a given underlying histogram, as well as the measurement
+/// count for the underlying histogram.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SummarizedHistogram {
     count: u64,
@@ -145,7 +155,7 @@ pub struct SummarizedHistogram {
 }
 
 impl SummarizedHistogram {
-    pub fn from_histogram(histogram: HdrHistogram<u64>, percentiles: &[Percentile]) -> Self {
+    pub(crate) fn from_histogram(histogram: HdrHistogram<u64>, percentiles: &[Percentile]) -> Self {
         let mut measurements = HashMap::default();
         let count = histogram.len();
 
@@ -157,10 +167,12 @@ impl SummarizedHistogram {
         SummarizedHistogram { count, measurements }
     }
 
+    /// Gets the total count of measurements present in the underlying histogram.
     pub fn count(&self) -> u64 {
         self.count
     }
 
+    /// Gets the map of percentile/value pairs extracted from the underlying histogram.
     pub fn measurements(&self) -> &HashMap<Percentile, u64> {
         &self.measurements
     }
