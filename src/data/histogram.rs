@@ -79,7 +79,9 @@ impl WindowedHistogram {
         }
     }
 
-    pub fn update(&mut self, value: u64) { self.buckets[self.bucket_index].saturating_record(value); }
+    pub fn update(&mut self, value: u64) {
+        self.buckets[self.bucket_index].saturating_record(value);
+    }
 
     pub fn merged(&self) -> HdrHistogram<u64> {
         let mut base = HdrHistogram::new_from(&self.buckets[self.bucket_index]);

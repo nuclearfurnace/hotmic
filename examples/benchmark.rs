@@ -101,7 +101,7 @@ fn main() {
         Err(f) => {
             error!("Failed to parse command line args: {}", f);
             return;
-        },
+        }
     };
 
     if matches.opt_present("help") {
@@ -178,16 +178,17 @@ fn main() {
         let mut turn_total = 0;
 
         let start = Instant::now();
-        let snapshot = controller.get_snapshot().unwrap();
+        let snapshot = controller.get_snapshot();
         let end = Instant::now();
         snapshot_hist.saturating_record(duration_as_nanos(end - start) as u64);
 
+        let snapshot = snapshot.unwrap().into_simple();
         if let Some(t) = snapshot.count(&ok_key) {
-            turn_total += *t as u64;
+            turn_total += t as u64;
         }
 
         if let Some(t) = snapshot.gauge(&total_key) {
-            turn_total += *t;
+            turn_total += t;
         }
 
         let turn_delta = turn_total - total;
@@ -218,7 +219,9 @@ fn main() {
     }
 }
 
-fn duration_as_nanos(d: Duration) -> f64 { (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64 }
+fn duration_as_nanos(d: Duration) -> f64 {
+    (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64
+}
 
 fn nanos_to_readable(t: u64) -> String {
     let f = t as f64;

@@ -1,13 +1,23 @@
-use super::{data::Snapshot, helper::io_error};
+use super::data::snapshot::Snapshot;
 use crossbeam_channel::{bounded, Sender};
-use std::io;
+use tokio_sync::oneshot;
+
+#[derive(Debug)]
+pub enum SnapshotError {
+    /// There was an internal error when trying to collect a snapshot.
+    InternalError,
+
+    /// A snapshot was requested but the receiver is shutdown.
+    ReceiverShutdown,
+}
 
 /// Various control actions performed by a controller.
 pub(crate) enum ControlFrame {
     /// Takes a snapshot of the current metric state.
-    ///
-    /// Caller must supply a [`Sender`] instance which the result can be sent to.
     Snapshot(Sender<Snapshot>),
+
+    /// Takes a snapshot of the current metric state, but uses an asynchronous channel.
+    SnapshotAsync(oneshot::Sender<Snapshot>),
 }
 
 /// Dedicated handle for performing operations on a running [`Receiver`](crate::receiver::Receiver).
@@ -20,21 +30,29 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub(crate) fn new(control_tx: Sender<ControlFrame>) -> Controller { Controller { control_tx } }
+    pub(crate) fn new(control_tx: Sender<ControlFrame>) -> Controller {
+        Controller { control_tx }
+    }
 
     /// Retrieves a snapshot of the current metric state.
-    pub fn get_snapshot(&self) -> Result<Snapshot, io::Error> {
+    pub fn get_snapshot(&self) -> Result<Snapshot, SnapshotError> {
         let (tx, rx) = bounded(0);
         let msg = ControlFrame::Snapshot(tx);
 
-        match self.control_tx.send(msg) {
-            Ok(_) => {
-                match rx.recv() {
-                    Ok(result) => Ok(result),
-                    Err(_) => Err(io_error("failed to receive snapshot")),
-                }
-            },
-            Err(_) => Err(io_error("failed to send snapshot command")),
-        }
+        self.control_tx
+            .send(msg)
+            .map_err(|_| SnapshotError::ReceiverShutdown)
+            .and_then(move |_| rx.recv().map_err(|_| SnapshotError::InternalError))
+    }
+
+    /// Retrieves a snapshot of the current metric state asynchronously.
+    pub fn get_snapshot_async(&self) -> Result<oneshot::Receiver<Snapshot>, SnapshotError> {
+        let (tx, rx) = oneshot::channel();
+        let msg = ControlFrame::SnapshotAsync(tx);
+
+        self.control_tx
+            .send(msg)
+            .map_err(|_| SnapshotError::ReceiverShutdown)
+            .map(move |_| rx)
     }
 }
