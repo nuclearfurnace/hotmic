@@ -3,6 +3,7 @@ use crossbeam_channel::{bounded, Sender};
 use std::fmt;
 use tokio_sync::oneshot;
 
+/// Error conditions when retrieving a snapshot.
 #[derive(Debug)]
 pub enum SnapshotError {
     /// There was an internal error when trying to collect a snapshot.
