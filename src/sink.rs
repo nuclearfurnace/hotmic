@@ -34,10 +34,7 @@ pub struct Sink<T: Clone + Eq + Hash + Display> {
 
 impl<T: Clone + Eq + Hash + Display> Sink<T> {
     pub(crate) fn new(
-        msg_tx: Sender<MessageFrame<ScopedKey<T>>>,
-        clock: Clock,
-        scopes: Arc<Scopes>,
-        scope: String,
+        msg_tx: Sender<MessageFrame<ScopedKey<T>>>, clock: Clock, scopes: Arc<Scopes>, scope: String,
     ) -> Sink<T> {
         let scope_id = scopes.register(scope.clone());
 
@@ -51,11 +48,7 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     }
 
     pub(crate) fn new_with_scope_id(
-        msg_tx: Sender<MessageFrame<ScopedKey<T>>>,
-        clock: Clock,
-        scopes: Arc<Scopes>,
-        scope: String,
-        scope_id: u64,
+        msg_tx: Sender<MessageFrame<ScopedKey<T>>>, clock: Clock, scopes: Arc<Scopes>, scope: String, scope_id: u64,
     ) -> Sink<T> {
         Sink {
             msg_tx,
@@ -93,26 +86,18 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     }
 
     /// Reference to the internal high-speed clock interface.
-    pub fn clock(&self) -> &Clock {
-        &self.clock
-    }
+    pub fn clock(&self) -> &Clock { &self.clock }
 
     /// Updates the count for a given metric.
-    pub fn update_count(&self, key: T, delta: i64) {
-        self.send(Sample::Count(key, delta))
-    }
+    pub fn update_count(&self, key: T, delta: i64) { self.send(Sample::Count(key, delta)) }
 
     /// Updates the value for a given metric.
     ///
     /// This can be used either for setting a gauge or updating a value histogram.
-    pub fn update_gauge(&self, key: T, value: u64) {
-        self.send(Sample::Gauge(key, value))
-    }
+    pub fn update_gauge(&self, key: T, value: u64) { self.send(Sample::Gauge(key, value)) }
 
     /// Updates the timing histogram for a given metric.
-    pub fn update_timing(&self, key: T, start: u64, end: u64) {
-        self.send(Sample::TimingHistogram(key, start, end, 1))
-    }
+    pub fn update_timing(&self, key: T, start: u64, end: u64) { self.send(Sample::TimingHistogram(key, start, end, 1)) }
 
     /// Updates the timing histogram for a given metric, with a count.
     pub fn update_timing_with_count(&self, key: T, start: u64, end: u64, count: u64) {
@@ -120,19 +105,13 @@ impl<T: Clone + Eq + Hash + Display> Sink<T> {
     }
 
     /// Updates the value histogram for a given metric.
-    pub fn update_value(&self, key: T, value: u64) {
-        self.send(Sample::ValueHistogram(key, value))
-    }
+    pub fn update_value(&self, key: T, value: u64) { self.send(Sample::ValueHistogram(key, value)) }
 
     /// Increments the given metric by one.
-    pub fn increment(&self, key: T) {
-        self.update_count(key, 1)
-    }
+    pub fn increment(&self, key: T) { self.update_count(key, 1) }
 
     /// Decrements the given metric by one.
-    pub fn decrement(&self, key: T) {
-        self.update_count(key, -1)
-    }
+    pub fn decrement(&self, key: T) { self.update_count(key, -1) }
 
     /// Sends a raw metric sample to the receiver.
     fn send(&self, sample: Sample<T>) {

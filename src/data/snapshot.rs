@@ -1,7 +1,5 @@
-use super::Percentile;
-use hdrhistogram::Histogram as HdrHistogram;
-use std::collections::HashMap;
-use std::fmt::Display;
+use super::{histogram::HistogramSnapshot, Percentile};
+use std::{collections::HashMap, fmt::Display};
 
 /// A typed metric measurement, used in snapshots.
 ///
@@ -17,7 +15,7 @@ pub enum TypedMeasurement {
 }
 
 /// A point-in-time view of metric data.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Snapshot {
     measurements: Vec<TypedMeasurement>,
 }
@@ -43,7 +41,7 @@ impl Snapshot {
     /// Sets timing percentiles for the given metric key.
     ///
     /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
-    pub(crate) fn set_timing_histogram<T>(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile])
+    pub(crate) fn set_timing_histogram<T>(&mut self, key: T, h: HistogramSnapshot, percentiles: &[Percentile])
     where
         T: Display,
     {
@@ -55,7 +53,7 @@ impl Snapshot {
     /// Sets value percentiles for the given metric key.
     ///
     /// From the given `HdrHistogram`, all the specific `percentiles` will be extracted and stored.
-    pub(crate) fn set_value_histogram<T>(&mut self, key: T, h: HdrHistogram<u64>, percentiles: &[Percentile])
+    pub(crate) fn set_value_histogram<T>(&mut self, key: T, h: HistogramSnapshot, percentiles: &[Percentile])
     where
         T: Display,
     {
@@ -68,14 +66,10 @@ impl Snapshot {
     ///
     /// [`SimpleSnapshot`] provides a programmatic interface to more easily sift through the
     /// metrics within, without needing to evaluate all of them.
-    pub fn into_simple(self) -> SimpleSnapshot {
-        SimpleSnapshot::from_snapshot(self)
-    }
+    pub fn into_simple(self) -> SimpleSnapshot { SimpleSnapshot::from_snapshot(self) }
 
     /// Converts this [`Snapshot`] to the underlying vector of measurements.
-    pub fn into_vec(self) -> Vec<TypedMeasurement> {
-        self.measurements
-    }
+    pub fn into_vec(self) -> Vec<TypedMeasurement> { self.measurements }
 }
 
 /// A user-friendly metric snapshot that allows easy retrieval of values.
@@ -97,16 +91,16 @@ impl SimpleSnapshot {
             match metric {
                 TypedMeasurement::Counter(key, value) => {
                     ss.counters.insert(key, value);
-                }
+                },
                 TypedMeasurement::Gauge(key, value) => {
                     ss.gauges.insert(key, value);
-                }
+                },
                 TypedMeasurement::TimingHistogram(key, value) => {
                     ss.timings.insert(key, value);
-                }
+                },
                 TypedMeasurement::ValueHistogram(key, value) => {
                     ss.values.insert(key, value);
-                }
+                },
             }
         }
         ss
@@ -115,16 +109,12 @@ impl SimpleSnapshot {
     /// Gets the counter value for the given metric key.
     ///
     /// Returns `None` if the metric key has no counter value in this snapshot.
-    pub fn count(&self, key: &str) -> Option<i64> {
-        self.counters.get(key).cloned()
-    }
+    pub fn count(&self, key: &str) -> Option<i64> { self.counters.get(key).cloned() }
 
     /// Gets the gauge value for the given metric key.
     ///
     /// Returns `None` if the metric key has no gauge value in this snapshot.
-    pub fn gauge(&self, key: &str) -> Option<u64> {
-        self.gauges.get(key).cloned()
-    }
+    pub fn gauge(&self, key: &str) -> Option<u64> { self.gauges.get(key).cloned() }
 
     /// Gets the given timing percentile for given metric key.
     ///
@@ -151,36 +141,41 @@ impl SimpleSnapshot {
 #[derive(Debug, PartialEq, Eq)]
 pub struct SummarizedHistogram {
     count: u64,
+    sum: u64,
     measurements: HashMap<Percentile, u64>,
 }
 
 impl SummarizedHistogram {
-    pub(crate) fn from_histogram(histogram: HdrHistogram<u64>, percentiles: &[Percentile]) -> Self {
+    pub(crate) fn from_histogram(histogram: HistogramSnapshot, percentiles: &[Percentile]) -> Self {
         let mut measurements = HashMap::default();
-        let count = histogram.len();
+        let count = histogram.count();
+        let sum = histogram.sum();
 
         for percentile in percentiles {
-            let value = histogram.value_at_percentile(percentile.value);
+            let value = histogram.histogram().value_at_percentile(percentile.value);
             measurements.insert(percentile.clone(), value);
         }
 
-        SummarizedHistogram { count, measurements }
+        SummarizedHistogram {
+            count,
+            sum,
+            measurements,
+        }
     }
 
     /// Gets the total count of measurements present in the underlying histogram.
-    pub fn count(&self) -> u64 {
-        self.count
-    }
+    pub fn count(&self) -> u64 { self.count }
+
+    /// Gets the total sum of the measurements recorded in the underlying histogram.
+    pub fn sum(&self) -> u64 { self.sum }
 
     /// Gets the map of percentile/value pairs extracted from the underlying histogram.
-    pub fn measurements(&self) -> &HashMap<Percentile, u64> {
-        &self.measurements
-    }
+    pub fn measurements(&self) -> &HashMap<Percentile, u64> { &self.measurements }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Percentile, Snapshot, TypedMeasurement};
+    use super::{HistogramSnapshot, Percentile, Snapshot, TypedMeasurement};
     use hdrhistogram::Histogram;
 
     #[test]
@@ -201,10 +196,15 @@ mod tests {
         {
             let mut snapshot = Snapshot::default();
             let mut h1 = Histogram::<u64>::new_with_bounds(1, u64::max_value(), 3).unwrap();
+            let mut sum = 0;
             h1.saturating_record(500_000);
+            sum += 500_000;
             h1.saturating_record(750_000);
+            sum += 750_000;
             h1.saturating_record(1_000_000);
+            sum += 1_000_000;
             h1.saturating_record(1_250_000);
+            sum += 1_250_000;
 
             let tkey = "ok".to_owned();
             let mut tpercentiles = Vec::new();
@@ -214,13 +214,14 @@ mod tests {
             tpercentiles.push(Percentile::from(100.0));
             let fake = Percentile::from(63.0);
 
-            snapshot.set_timing_histogram(tkey.clone(), h1, &tpercentiles);
+            snapshot.set_timing_histogram(tkey.clone(), HistogramSnapshot::new(h1, sum), &tpercentiles);
 
             let values = snapshot.into_vec();
             match values.get(0) {
                 Some(TypedMeasurement::TimingHistogram(key, summary)) => {
                     assert_eq!(key, "ok");
                     assert_eq!(summary.count(), 4);
+                    assert_eq!(summary.sum(), 3_500_000);
 
                     let min_tpercentile = summary.measurements().get(&tpercentiles[0]);
                     let p50_tpercentile = summary.measurements().get(&tpercentiles[1]);
@@ -233,7 +234,7 @@ mod tests {
                     assert!(p99_tpercentile.is_some());
                     assert!(max_tpercentile.is_some());
                     assert!(fake_tpercentile.is_none());
-                }
+                },
                 _ => panic!("expected timing histogram value! actual: {:?}", values[0]),
             }
         }
@@ -241,10 +242,15 @@ mod tests {
         {
             let mut snapshot = Snapshot::default();
             let mut h1 = Histogram::<u64>::new_with_bounds(1, u64::max_value(), 3).unwrap();
+            let mut sum = 0;
             h1.saturating_record(500_000);
+            sum += 500_000;
             h1.saturating_record(750_000);
+            sum += 750_000;
             h1.saturating_record(1_000_000);
+            sum += 1_000_000;
             h1.saturating_record(1_250_000);
+            sum += 1_250_000;
 
             let tkey = "ok".to_owned();
             let mut tpercentiles = Vec::new();
@@ -254,13 +260,14 @@ mod tests {
             tpercentiles.push(Percentile::from(100.0));
             let fake = Percentile::from(63.0);
 
-            snapshot.set_value_histogram(tkey.clone(), h1, &tpercentiles);
+            snapshot.set_value_histogram(tkey.clone(), HistogramSnapshot::new(h1, sum), &tpercentiles);
 
             let values = snapshot.into_vec();
             match values.get(0) {
                 Some(TypedMeasurement::ValueHistogram(key, summary)) => {
                     assert_eq!(key, "ok");
                     assert_eq!(summary.count(), 4);
+                    assert_eq!(summary.sum(), 3_500_000);
 
                     let min_tpercentile = summary.measurements().get(&tpercentiles[0]);
                     let p50_tpercentile = summary.measurements().get(&tpercentiles[1]);
@@ -273,7 +280,7 @@ mod tests {
                     assert!(p99_tpercentile.is_some());
                     assert!(max_tpercentile.is_some());
                     assert!(fake_tpercentile.is_none());
-                }
+                },
                 _ => panic!("expected value histogram value! actual: {:?}", values[0]),
             }
         }

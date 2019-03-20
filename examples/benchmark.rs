@@ -101,7 +101,7 @@ fn main() {
         Err(f) => {
             error!("Failed to parse command line args: {}", f);
             return;
-        }
+        },
     };
 
     if matches.opt_present("help") {
@@ -219,9 +219,7 @@ fn main() {
     }
 }
 
-fn duration_as_nanos(d: Duration) -> f64 {
-    (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64
-}
+fn duration_as_nanos(d: Duration) -> f64 { (d.as_secs() as f64 * 1e9) + d.subsec_nanos() as f64 }
 
 fn nanos_to_readable(t: u64) -> String {
     let f = t as f64;

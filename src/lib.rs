@@ -152,10 +152,5 @@ pub use self::{
 };
 
 pub mod snapshot {
-    pub use super::data::snapshot::{
-        Snapshot,
-        SimpleSnapshot,
-        TypedMeasurement,
-        SummarizedHistogram,
-    };
+    pub use super::data::snapshot::{SimpleSnapshot, Snapshot, SummarizedHistogram, TypedMeasurement};
 }

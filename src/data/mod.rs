@@ -51,13 +51,9 @@ pub(crate) enum Sample<T> {
 pub(crate) struct ScopedKey<T: Clone + Eq + Hash + Display>(u64, T);
 
 impl<T: Clone + Eq + Hash + Display> ScopedKey<T> {
-    pub(crate) fn id(&self) -> u64 {
-        self.0
-    }
+    pub(crate) fn id(&self) -> u64 { self.0 }
 
-    pub(crate) fn into_string_scoped(self, scope: String) -> StringScopedKey<T> {
-        StringScopedKey(scope, self.1)
-    }
+    pub(crate) fn into_string_scoped(self, scope: String) -> StringScopedKey<T> { StringScopedKey(scope, self.1) }
 }
 
 /// A string scoped metric key.
@@ -81,7 +77,7 @@ impl<T: Clone + Eq + Hash + Display> Sample<T> {
             Sample::Gauge(key, value) => Sample::Gauge(ScopedKey(scope_id, key), value),
             Sample::TimingHistogram(key, start, end, count) => {
                 Sample::TimingHistogram(ScopedKey(scope_id, key), start, end, count)
-            }
+            },
             Sample::ValueHistogram(key, count) => Sample::ValueHistogram(ScopedKey(scope_id, key), count),
         }
     }
@@ -106,14 +102,13 @@ impl Percentile {
     ///
     /// This follows the convention of `pXXX`, where `xxx` represents the percentage.  For example,
     /// for the 99th percentile, you would get `p99`.  For the 99.9th percentile, you would get `p999`.
-    pub fn label(&self) -> &str {
-        self.label.as_str()
-    }
+    pub fn label(&self) -> &str { self.label.as_str() }
 
     /// Gets the actual percentile value.
-    pub fn percentile(&self) -> f64 {
-        self.value
-    }
+    pub fn percentile(&self) -> f64 { self.value }
+
+    /// Gets the percentile value as a quantile.
+    pub fn as_quantile(&self) -> f64 { self.value / 100.0 }
 }
 
 impl Eq for Percentile {}
@@ -131,7 +126,7 @@ impl From<f64> for Percentile {
             _ => {
                 let raw = format!("p{}", clamped);
                 raw.replace(".", "")
-            }
+            },
         };
 
         Percentile { label, value: clamped }

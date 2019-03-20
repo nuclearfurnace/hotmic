@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2019-03-19
+### Added
+- Histograms now track the sum of all values they record, to support target systems like Prometheus.
+- Added the ability to get percentiles as quantiles.  This is also to support target systems like Prometheus.  These are derived from the existing percentile values and so can have extra decimal precision.  This will be unified in a future breaking update.
+
 ## [0.8.1] - 2019-03-15
 ### Changed
 - Fixed some issues with type visibility and documentation.

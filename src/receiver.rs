@@ -65,9 +65,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     }
 
     /// Gets a builder to configure a `Receiver` instance with.
-    pub fn builder() -> Configuration<T> {
-        Configuration::default()
-    }
+    pub fn builder() -> Configuration<T> { Configuration::default() }
 
     /// Creates a `Sink` bound to this receiver.
     pub fn get_sink(&self) -> Sink<T> {
@@ -81,9 +79,7 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
     }
 
     /// Creates a `Controller` bound to this receiver.
-    pub fn get_controller(&self) -> Controller {
-        Controller::new(self.control_tx.clone())
-    }
+    pub fn get_controller(&self) -> Controller { Controller::new(self.control_tx.clone()) }
 
     /// Run the receiver.
     pub fn run(&mut self) {
@@ -186,31 +182,33 @@ impl<T: Clone + Eq + Hash + Display + Send> Receiver<T> {
             ControlFrame::Snapshot(tx) => {
                 let snapshot = self.get_snapshot();
                 let _ = tx.send(snapshot);
-            }
+            },
             ControlFrame::SnapshotAsync(tx) => {
                 let snapshot = self.get_snapshot();
                 let _ = tx.send(snapshot);
-            }
+            },
         }
     }
 
     /// Processes a message frame.
     fn process_msg_frame(&mut self, msg: MessageFrame<ScopedKey<T>>) {
         match msg {
-            MessageFrame::Data(sample) => match sample {
-                Sample::Count(key, count) => {
-                    self.counter.update(key, count);
-                }
-                Sample::Gauge(key, value) => {
-                    self.gauge.update(key, value);
-                }
-                Sample::TimingHistogram(key, start, end, count) => {
-                    let delta = self.clock.delta(start, end);
-                    self.counter.update(key.clone(), count as i64);
-                    self.thistogram.update(key, delta);
-                }
-                Sample::ValueHistogram(key, value) => {
-                    self.vhistogram.update(key, value);
+            MessageFrame::Data(sample) => {
+                match sample {
+                    Sample::Count(key, count) => {
+                        self.counter.update(key, count);
+                    },
+                    Sample::Gauge(key, value) => {
+                        self.gauge.update(key, value);
+                    },
+                    Sample::TimingHistogram(key, start, end, count) => {
+                        let delta = self.clock.delta(start, end);
+                        self.counter.update(key.clone(), count as i64);
+                        self.thistogram.update(key, delta);
+                    },
+                    Sample::ValueHistogram(key, value) => {
+                        self.vhistogram.update(key, value);
+                    },
                 }
             },
         }

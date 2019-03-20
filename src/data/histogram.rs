@@ -38,8 +38,8 @@ impl<T: Clone + Eq + Hash> Histogram<T> {
         }
     }
 
-    pub fn values(&self) -> Vec<(T, HdrHistogram<u64>)> {
-        self.data.iter().map(|(k, v)| (k.clone(), v.merged())).collect()
+    pub fn values(&self) -> Vec<(T, HistogramSnapshot)> {
+        self.data.iter().map(|(k, v)| (k.clone(), v.snapshot())).collect()
     }
 }
 
@@ -47,6 +47,7 @@ pub(crate) struct WindowedHistogram {
     buckets: Vec<HdrHistogram<u64>>,
     num_buckets: usize,
     bucket_index: usize,
+    sum: u64,
     last_upkeep: Instant,
     granularity: Duration,
 }
@@ -65,6 +66,7 @@ impl WindowedHistogram {
             buckets,
             num_buckets,
             bucket_index: 0,
+            sum: 0,
             last_upkeep: Instant::now(),
             granularity,
         }
@@ -81,16 +83,38 @@ impl WindowedHistogram {
 
     pub fn update(&mut self, value: u64) {
         self.buckets[self.bucket_index].saturating_record(value);
+        self.sum = self.sum.wrapping_add(value);
     }
 
-    pub fn merged(&self) -> HdrHistogram<u64> {
+    pub fn snapshot(&self) -> HistogramSnapshot {
         let mut base = HdrHistogram::new_from(&self.buckets[self.bucket_index]);
         for histogram in &self.buckets {
             base.add(histogram).unwrap()
         }
 
-        base
+        HistogramSnapshot::new(base, self.sum)
     }
+}
+
+#[derive(Debug)]
+pub struct HistogramSnapshot {
+    histogram: HdrHistogram<u64>,
+    sum: u64,
+    count: u64,
+}
+
+impl HistogramSnapshot {
+    pub fn new(histogram: HdrHistogram<u64>, sum: u64) -> Self {
+        let count = histogram.len();
+
+        HistogramSnapshot { histogram, sum, count }
+    }
+
+    pub fn histogram(&self) -> &HdrHistogram<u64> { &self.histogram }
+
+    pub fn sum(&self) -> u64 { self.sum }
+
+    pub fn count(&self) -> u64 { self.count }
 }
 
 #[cfg(test)]
@@ -109,8 +133,28 @@ mod tests {
         assert_eq!(values.len(), 1);
 
         let hdr = &values[0].1;
-        assert_eq!(hdr.len(), 1);
-        assert_eq!(hdr.max(), 1245);
+        assert_eq!(hdr.histogram().len(), 1);
+        assert_eq!(hdr.histogram().max(), 1245);
+        assert_eq!(hdr.sum(), 1245);
+    }
+
+    #[test]
+    fn test_histogram_complex_update() {
+        let mut histogram = Histogram::new(Duration::new(5, 0), Duration::new(1, 0));
+
+        let key = "foo";
+        histogram.update(key, 1245);
+        histogram.update(key, 213);
+        histogram.update(key, 1022);
+        histogram.update(key, 1248);
+
+        let values = histogram.values();
+        assert_eq!(values.len(), 1);
+
+        let hdr = &values[0].1;
+        assert_eq!(hdr.histogram().len(), 4);
+        assert_eq!(hdr.histogram().max(), 1248);
+        assert_eq!(hdr.sum(), 3728);
     }
 
     #[test]
@@ -118,37 +162,37 @@ mod tests {
         let mut wh = WindowedHistogram::new(Duration::new(5, 0), Duration::new(1, 0));
         let now = Instant::now();
 
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 0);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 0);
 
         wh.update(1);
         wh.update(2);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 2);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 2);
 
         // Roll forward 3 seconds, should still have everything.
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 2);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 2);
 
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 2);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 2);
 
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 2);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 2);
 
         // Pump in some new values.
         wh.update(3);
         wh.update(4);
         wh.update(5);
 
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 5);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 5);
 
         // Roll forward 3 seconds, and make sure the first two values are gone.
         // You might think this should be 2 seconds, but we have one extra bucket
@@ -158,17 +202,17 @@ mod tests {
         // of granularity.
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 5);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 5);
 
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 5);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 5);
 
         let now = now + Duration::new(1, 0);
         wh.upkeep(now);
-        let merged = wh.merged();
-        assert_eq!(merged.len(), 3);
+        let snapshot = wh.snapshot();
+        assert_eq!(snapshot.count(), 3);
     }
 }
