@@ -19,6 +19,10 @@
 
 __hotmic__ is a high-speed metrics collection library, based on [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam-channel).  It is heavily inspired by [tic](https://github.com/brayniac/tic).
 
+# this crate is deprecated!
+
+`hotmic` has transformed into [`metrics`](https://github.com/metrics-rs/metrics).
+
 ## code of conduct
 
 **NOTE**: All conversations and contributions to this project shall adhere to the [Code of Conduct][conduct].
